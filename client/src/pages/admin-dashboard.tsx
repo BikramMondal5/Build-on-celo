@@ -21,7 +21,9 @@ import { insertFoodItemSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import type { FoodItem, FoodItemWithCreator, FoodDonationWithDetails } from "@shared/schema";
-
+interface FoodItemWithId extends FoodItemWithCreator {
+  _id?: string;
+}
 interface CampusStats {
   totalMealsSaved: number;
   activeStudents: number;
@@ -48,7 +50,7 @@ import {
 
 const formSchema = insertFoodItemSchema.omit({ createdBy: true }).extend({
   availableUntil: z.string().min(1, "Available until time is required"),
-  imageUrl: z.string().optional(),
+  image: z.any().optional(),
   canteenLocation: z.string().optional(),
 });
 
@@ -59,7 +61,7 @@ export default function AdminDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [addItemModalOpen, setAddItemModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<FoodItem | null>(null);
+  const [editingItem, setEditingItem] = useState<FoodItemWithId | null>(null);
   const [claimCode, setClaimCode] = useState("");
   const [verificationResult, setVerificationResult] = useState<any>(null);
   const [ngoModalOpen, setNgoModalOpen] = useState(false);
@@ -70,7 +72,7 @@ export default function AdminDashboard() {
     ngoPhoneNumber: "",
   });
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<FoodItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<FoodItemWithId | null>(null);
 
   // Redirect if not admin or pending approval
   if (!authLoading && (!user || (user.role !== "admin" && user.role !== null))) {
@@ -88,7 +90,7 @@ export default function AdminDashboard() {
     return null;
   }
 
-  const { data: myItems = [], isLoading: itemsLoading } = useQuery<FoodItemWithCreator[]>({
+  const { data: myItems = [], isLoading: itemsLoading } = useQuery<FoodItemWithId[]>({
     queryKey: ["/api/food-items/my"],
     enabled: !!user && user.role === "admin",
   });
@@ -109,7 +111,7 @@ export default function AdminDashboard() {
       canteenName: "",
       canteenLocation: "",
       quantityAvailable: 1,
-      imageUrl: "",
+      imageUrl: undefined,
       availableUntil: "",
       isActive: true,
     },
@@ -117,18 +119,30 @@ export default function AdminDashboard() {
 
   const addItemMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      // Transform the data to match the backend schema
-      const transformedData = {
-        ...data,
-        availableUntil: data.availableUntil, // Keep as string for timestamp mode
-        imageUrl: data.imageUrl || null,
-        canteenLocation: data.canteenLocation || null,
-      };
+      const formData = new FormData();
       
-      const response = await apiRequest("POST", "/api/food-items", transformedData);
+      // Append all fields
+      formData.append('name', data.name);
+      formData.append('description', data.description || '');
+      formData.append('canteenName', data.canteenName);
+      formData.append('canteenLocation', data.canteenLocation || '');
+      formData.append('quantityAvailable', (data.quantityAvailable ?? 1).toString()); 
+      formData.append('availableUntil', data.availableUntil);
+      formData.append('isActive', (data.isActive ?? true).toString()); 
+      
+      // Append image file if exists
+      if (data.image && data.image[0]) {
+        formData.append('image', data.image[0]);
+      }
+      
+      const response = await fetch('/api/food-items', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
       if (!response.ok) {
         const errorData = await response.json();
-        console.error("API Error:", errorData);
         throw new Error(errorData.message || "Failed to create food item");
       }
       return response.json();
@@ -166,24 +180,53 @@ export default function AdminDashboard() {
   const updateItemMutation = useMutation({
     mutationFn: async (data: FormData & { id: string }) => {
       const { id, ...updateData } = data;
-      // Transform the data to match the backend schema
-      const transformedData = {
-        ...updateData,
-        availableUntil: updateData.availableUntil, // Keep as string for timestamp mode
-        imageUrl: updateData.imageUrl || null,
-        canteenLocation: updateData.canteenLocation || null,
-      };
       
-      const response = await apiRequest("PUT", `/api/food-items/${id}`, transformedData);
+      const formData = new FormData();
+      
+      // Append all fields
+      if (updateData.name) formData.append('name', updateData.name);
+      if (updateData.description) formData.append('description', updateData.description);
+      if (updateData.canteenName) formData.append('canteenName', updateData.canteenName);
+      if (updateData.canteenLocation) formData.append('canteenLocation', updateData.canteenLocation);
+      if (updateData.quantityAvailable !== undefined) {
+        formData.append('quantityAvailable', updateData.quantityAvailable.toString());
+      }
+      if (updateData.availableUntil) formData.append('availableUntil', updateData.availableUntil);
+      if (updateData.isActive !== undefined) {
+        formData.append('isActive', updateData.isActive.toString());
+      }
+      
+      // Append image file if exists
+      if (updateData.image && updateData.image[0]) {
+        formData.append('image', updateData.image[0]);
+      }
+      
+      const response = await fetch(`/api/food-items/${id}`, {
+        method: 'PUT',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to update food item");
+      }
       return response.json();
     },
     onSuccess: () => {
+      // Close modal and reset form BEFORE showing toast
+      setAddItemModalOpen(false);
+      setEditingItem(null);
+      form.reset();
+      
+      // Then show toast
       toast({
         title: "Food Item Updated",
         description: "Your food item has been updated successfully.",
+        duration: 3000,
       });
-      setEditingItem(null);
-      form.reset();
+      
+      // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ["/api/food-items/my"] });
       queryClient.invalidateQueries({ queryKey: ["/api/food-items"] });
     },
@@ -203,6 +246,7 @@ export default function AdminDashboard() {
         title: "Failed to Update Item",
         description: error.message || "Something went wrong. Please try again.",
         variant: "destructive",
+        duration: 3000,
       });
     },
   });
@@ -371,13 +415,13 @@ export default function AdminDashboard() {
 
   const onSubmit = (data: FormData) => {
     if (editingItem) {
-      updateItemMutation.mutate({ ...data, id: editingItem.id });
+      const itemId = editingItem.id || (editingItem as any)._id;
+      updateItemMutation.mutate({ ...data, id: itemId });
     } else {
       addItemMutation.mutate(data);
     }
   };
-
-  const handleEdit = (item: FoodItem) => {
+  const handleEdit = (item: FoodItemWithId) => {
     setEditingItem(item);
     const availableUntil = new Date(item.availableUntil);
     const localDateTime = new Date(availableUntil.getTime() - availableUntil.getTimezoneOffset() * 60000)
@@ -390,7 +434,7 @@ export default function AdminDashboard() {
       canteenName: item.canteenName,
       canteenLocation: item.canteenLocation || "",
       quantityAvailable: item.quantityAvailable,
-      imageUrl: item.imageUrl || "",
+      image: undefined,
       availableUntil: localDateTime,
       isActive: item.isActive,
     });
@@ -409,7 +453,7 @@ export default function AdminDashboard() {
     form.reset();
   };
 
-  const handleViewDetails = (item: FoodItem) => {
+  const handleViewDetails = (item: FoodItemWithId) => {
     setSelectedItem(item);
     setDetailsModalOpen(true);
   };
@@ -449,7 +493,7 @@ export default function AdminDashboard() {
           {/* Personal Canteen Stats */}
           <div className="mb-4">
             <h2 className="text-xl font-semibold text-white mb-3">
-              Your Performance
+              Your Canteen Performance
             </h2>
           </div>
           
@@ -499,7 +543,7 @@ export default function AdminDashboard() {
           {/* Campus-wide Stats */}
           <div className="mt-8">
             <h3 className="text-lg font-semibold text-white mb-3">
-              Impacts
+              Campus-wide Impact
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-gray-800/80 backdrop-blur-sm rounded-2xl p-6 transition-all duration-300">
@@ -663,7 +707,7 @@ export default function AdminDashboard() {
                               <Input 
                                 type="datetime-local" 
                                 {...field}
-                                className="[&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert dark:[&::-webkit-calendar-picker-indicator]:filter-none"
+                                className="[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:dark:invert dark:bg-gray-800 dark:text-white"
                                 data-testid="input-available-until"
                               />
                             </FormControl>
@@ -674,18 +718,23 @@ export default function AdminDashboard() {
                       
                       <FormField
                         control={form.control}
-                        name="imageUrl"
-                        render={({ field }) => (
+                        name="image"
+                        render={({ field: { value, onChange, ...fieldProps } }) => (
                           <FormItem>
-                            <FormLabel>Image URL (Optional)</FormLabel>
+                            <FormLabel>Food Image (Optional)</FormLabel>
                             <FormControl>
                               <Input 
-                                placeholder="https://example.com/image.jpg" 
-                                {...field}
-                                value={field.value || ""}
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => onChange(e.target.files)}
+                                {...fieldProps}
+                                data-testid="input-image-upload"
                               />
                             </FormControl>
                             <FormMessage />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Max size: 5MB. Formats: JPG, PNG, GIF, WebP
+                            </p>
                           </FormItem>
                         )}
                       />
@@ -856,7 +905,10 @@ export default function AdminDashboard() {
                                 Edit
                               </DropdownMenuItem>
                               <DropdownMenuItem 
-                                onClick={() => handleDelete(item.id)}
+                                onClick={() => {
+                                  const itemId = item.id || item._id;
+                                  if (itemId) handleDelete(itemId);
+                                }}
                                 className="text-red-600 focus:text-red-600"
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />
