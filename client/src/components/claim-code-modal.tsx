@@ -125,7 +125,7 @@ export function ClaimCodeModal({ isOpen, onClose, claim, onSubmitClaim, isClaimF
   if (isClaimForm) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-center">
               <div className="flex flex-col items-center">
