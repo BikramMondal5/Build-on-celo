@@ -44,12 +44,15 @@ export interface IStorage {
   updateFoodItem(id: string, updates: Partial<InsertFoodItem>): Promise<IFoodItem>;
   deleteFoodItem(id: string): Promise<void>;
   getFoodItemsByCreator(creatorId: string): Promise<FoodItemWithCreator[]>;
+  getPendingFoodClaims(): Promise<any[]>;
+  getFoodClaimById(id: string): Promise<IFoodClaim | null>;
+  updateFoodClaimWithCode(id: string, claimCode: string, status: string, expiresAt: Date): Promise<IFoodClaim | null>;
 
   // Food claim operations
   createFoodClaim(claim: InsertFoodClaim & { claimCode: string }): Promise<IFoodClaim>;
   getFoodClaimsByUser(userId: string): Promise<FoodClaimWithDetails[]>;
   getFoodClaimByClaimCode(claimCode: string): Promise<FoodClaimWithDetails | undefined>;
-  updateFoodClaimStatus(id: string, status: string, claimedAt?: Date): Promise<IFoodClaim>;
+  updateFoodClaimStatus(id: string, status: string, claimedAt?: Date): Promise<IFoodClaim | null>;
   getActiveFoodClaims(): Promise<FoodClaimWithDetails[]>;
   getClaimByCode(claimCode: string): Promise<FoodClaimWithDetails | undefined>;
   completeClaim(claimId: string): Promise<FoodClaimWithDetails>;
@@ -261,6 +264,91 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // Get pending food claims with full details
+  async getPendingFoodClaims() {
+    const claims = await FoodClaim.find({ status: 'pending' })
+      .sort({ createdAt: -1 });
+    
+    // Populate user and food item details
+    const claimsWithDetails = await Promise.all(
+      claims.map(async (claim) => {
+        const user = await User.findById(claim.userId);
+        const foodItem = await FoodItem.findById(claim.foodItemId);
+        return {
+          ...claim.toObject(),
+          user,
+          foodItem,
+        };
+      })
+    );
+    
+    return claimsWithDetails;
+  }
+
+  // Get food claim by ID
+  async getFoodClaimById(id: string) {
+    return await FoodClaim.findById(id);
+  }
+
+  // Update food claim with claim code and status
+  async updateFoodClaimWithCode(
+    id: string, 
+    claimCode: string, 
+    status: string, 
+    expiresAt: Date
+  ) {
+    const claim = await FoodClaim.findByIdAndUpdate(
+      id,
+      { 
+        claimCode, 
+        status, 
+        expiresAt,
+        updatedAt: new Date() 
+      },
+      { new: true }
+    );
+    return claim;
+  }
+
+  // Update food claim status (for rejection)
+  async updateFoodClaimStatus(id: string, status: string, claimedAt?: Date) {
+    const updateData: any = { 
+      status,
+      updatedAt: new Date() 
+    };
+    
+    if (claimedAt) {
+      updateData.claimedAt = claimedAt;
+    }
+    
+    const claim = await FoodClaim.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true }
+    );
+    
+    // If status is claimed, reduce the food item quantity
+    if (status === 'claimed' && claim) {
+      const foodItem = await FoodItem.findById(claim.foodItemId);
+      if (foodItem) {
+        foodItem.quantityAvailable = Math.max(0, foodItem.quantityAvailable - claim.quantityClaimed);
+        await foodItem.save();
+      }
+    }
+    
+    return claim;
+  }
+
+  // Check if user has already claimed a food item (including pending status)
+  async hasUserClaimedFoodItem(userId: string, foodItemId: string): Promise<boolean> {
+    const existingClaim = await FoodClaim.findOne({
+      userId,
+      foodItemId,
+      status: { $in: ['pending', 'reserved', 'claimed'] }
+    });
+    return !!existingClaim;
+  }
+
   async createFoodItem(foodItem: InsertFoodItem): Promise<IFoodItem> {
     const item = await FoodItem.create(foodItem);
     return item.toObject() as any as IFoodItem;
@@ -346,15 +434,6 @@ export class DatabaseStorage implements IStorage {
     } as any as FoodClaimWithDetails;
   }
 
-  async updateFoodClaimStatus(id: string, status: string, claimedAt?: Date): Promise<IFoodClaim> {
-    const claim = await FoodClaim.findByIdAndUpdate(
-      id,
-      { status, claimedAt },
-      { new: true }
-    ).lean();
-    return claim as any as IFoodClaim;
-  }
-
   async getActiveFoodClaims(): Promise<FoodClaimWithDetails[]> {
     const now = new Date();
     const claims = await FoodClaim.find({
@@ -418,15 +497,6 @@ export class DatabaseStorage implements IStorage {
       user: (fullClaim as any).userId,
       foodItem: (fullClaim as any).foodItemId
     } as any as FoodClaimWithDetails;
-  }
-
-  async hasUserClaimedFoodItem(userId: string, foodItemId: string): Promise<boolean> {
-    const existingClaim = await FoodClaim.findOne({
-      userId,
-      foodItemId,
-      status: { $in: ['reserved', 'claimed'] }
-    });
-    return !!existingClaim;
   }
 
   // Food donation operations

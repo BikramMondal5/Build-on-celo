@@ -184,6 +184,7 @@ interface MealCardProps {
   onClaim: (foodItemId: string) => void;
   isLoading: boolean;
   userClaims: FoodClaimWithDetails[];
+  isPendingApproval?: boolean; // Add this line
 }
 
 export const MealCard: React.FC<MealCardProps> = ({
@@ -191,6 +192,7 @@ export const MealCard: React.FC<MealCardProps> = ({
   onClaim,
   isLoading,
   userClaims,
+  isPendingApproval
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const modalDataRef = useRef({ latitude: 22.519232, longitude: 88.415007, foodName: meal.name });
@@ -210,12 +212,15 @@ export const MealCard: React.FC<MealCardProps> = ({
   );
 
   // Check if user has a pending claim for this meal
-  const hasPendingClaim = useMemo(() =>
-    userClaims.some(claim =>
-      claim.foodItemId === meal.id && claim.status === 'reserved'
-    ),
-    [userClaims, meal.id]
-  );
+  const hasPendingClaim = useMemo(() => {
+    // Use prop if provided, otherwise calculate from userClaims
+    if (isPendingApproval !== undefined) {
+      return isPendingApproval;
+    }
+    return userClaims.some(claim =>
+      claim.foodItemId === meal.id && claim.status === 'pending'
+    );
+  }, [isPendingApproval, userClaims, meal.id]);
 
   // Calculate time remaining
   const { hoursRemaining, minutesRemaining, timeRemaining } = useMemo(() => {
@@ -298,8 +303,12 @@ export const MealCard: React.FC<MealCardProps> = ({
 
           <Button
             onClick={handleClaim}
-            disabled={isLoading || hasClaimed || meal.quantityAvailable <= 0 || timeRemaining <= 0}
-            className="w-full bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+            disabled={isLoading || hasClaimed || meal.quantityAvailable <= 0 || timeRemaining <= 0 || hasPendingClaim}
+            className={`w-full text-white disabled:cursor-not-allowed ${
+              hasPendingClaim 
+                ? 'bg-gray-400 hover:bg-gray-400' 
+                : 'bg-green-600 hover:bg-green-700 disabled:bg-gray-300'
+            }`}
           >
             {isLoading ? (
               <div className="flex items-center">

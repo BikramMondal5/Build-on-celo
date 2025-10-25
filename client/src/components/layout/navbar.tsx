@@ -117,10 +117,6 @@ export function Navbar() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200/50 dark:border-gray-700/50 shadow-xl rounded-xl">
-                        <DropdownMenuItem className="hover:bg-gray-100/80 dark:hover:bg-gray-700/80 rounded-lg">
-                          <User className="mr-2 h-4 w-4" />
-                          Profile
-                        </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-gray-200/50 dark:bg-gray-700/50" />
                         <DropdownMenuItem 
                           onClick={handleLogout}
@@ -164,14 +160,6 @@ export function Navbar() {
             
             {/* User Actions */}
             <div className="space-y-3 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
-              <Button 
-                variant="outline" 
-                className="w-full justify-start"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <User className="mr-2 h-4 w-4" />
-                Profile
-              </Button>
               <Button 
                 variant="outline" 
                 className="w-full justify-start text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"

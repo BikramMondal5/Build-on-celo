@@ -178,10 +178,20 @@ export const insertFoodItemSchema = createInsertSchema(foodItems).omit({
   updatedAt: true,
 });
 
-export const insertFoodClaimSchema = createInsertSchema(foodClaims).omit({
-  id: true,
-  claimCode: true,
-  createdAt: true,
+export const insertFoodClaimSchema = z.object({
+  userId: z.string(),
+  foodItemId: z.string(),
+  quantityClaimed: z.number().int().positive().default(1),
+  claimCode: z.string().default(''), // Can be empty for pending claims
+  status: z.enum(["pending", "reserved", "claimed", "expired", "rejected"]).default("pending"),
+  expiresAt: z.date(),
+  claimedAt: z.date().optional(),
+  metadata: z.object({
+    name: z.string().optional(),
+    email: z.string().optional(),
+    phoneNumber: z.string().optional(),
+    organization: z.string().optional(),
+  }).optional(),
 });
 
 export const insertFoodDonationSchema = createInsertSchema(foodDonations).omit({
