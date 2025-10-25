@@ -32,8 +32,10 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<IUser | undefined>;
   getUserByEmail(email: string): Promise<IUser | undefined>;
+  getUserByWalletAddress(walletAddress: string): Promise<IUser | undefined>;
   getUsersByRole(role: string | null): Promise<IUser[]>;
   upsertUser(user: UpsertUser): Promise<IUser>;
+  createOrUpdateUserByWallet(walletAddress: string, userData?: Partial<IUser>): Promise<IUser>;
 
   // Food item operations
   getAllActiveFoodItems(): Promise<FoodItemWithCreator[]>;
@@ -103,19 +105,30 @@ export class DatabaseStorage implements IStorage {
   // User operations
   async getUser(userId: string): Promise<IUser | undefined> {
     try {
+      // Try to find by wallet address first
+      let user = await User.findOne({ walletAddress: userId }).lean();
+      if (user) {
+        return user as any as IUser;
+      }
+      
       // Check if it's a valid MongoDB ObjectId
       if (mongoose.Types.ObjectId.isValid(userId) && userId.length === 24) {
-        const user = await User.findById(userId).lean();
+        user = await User.findById(userId).lean();
         return user ? (user as any as IUser) : undefined;
       }
       
-      // Otherwise, it might be stored in a different field
-      const user = await User.findOne({ email: userId }).lean();
+      // Otherwise, try email
+      user = await User.findOne({ email: userId }).lean();
       return user ? (user as any as IUser) : undefined;
     } catch (error) {
       console.error('Error getting user:', error);
       return undefined;
     }
+  }
+
+  async getUserByWalletAddress(walletAddress: string): Promise<IUser | undefined> {
+    const user = await User.findOne({ walletAddress: walletAddress.toLowerCase() }).lean();
+    return user ? (user as any as IUser) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<IUser | undefined> {
@@ -133,9 +146,43 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  async createOrUpdateUserByWallet(walletAddress: string, userData?: Partial<IUser>): Promise<IUser> {
+    try {
+      const normalizedAddress = walletAddress.toLowerCase();
+      const existingUser = await User.findOne({ walletAddress: normalizedAddress });
+      
+      if (existingUser) {
+        // Update existing user
+        if (userData) {
+          Object.assign(existingUser, userData);
+          await existingUser.save();
+        }
+        return existingUser;
+      }
+      
+      // Create new user
+      const user = await User.create({
+        walletAddress: normalizedAddress,
+        studentId: `STU${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+        ...userData,
+      });
+      return user;
+    } catch (error) {
+      console.error('Error creating/updating user by wallet:', error);
+      throw error;
+    }
+  }
+
   async upsertUser(userData: Partial<IUser>): Promise<IUser> {
     try {
       const { id, ...dataWithoutId } = userData;
+      
+      // If wallet address is provided, use it
+      if (dataWithoutId.walletAddress) {
+        return this.createOrUpdateUserByWallet(dataWithoutId.walletAddress, dataWithoutId);
+      }
+      
+      // Fallback to email-based upsert
       if (dataWithoutId.email) {
         const existingUser = await User.findOne({ email: dataWithoutId.email });
         
