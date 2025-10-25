@@ -8,11 +8,12 @@ interface BaseDocument extends Document {
 
 // User Model
 export interface IUser extends BaseDocument {
+  walletAddress: string;
   email?: string;
   firstName?: string;
   lastName?: string;
   profileImageUrl?: string;
-  role?: string | null;
+  role?: string;
   studentId?: string;
   phoneNumber?: string;
   createdAt: Date;
@@ -20,6 +21,7 @@ export interface IUser extends BaseDocument {
 }
 
 const userSchema = new Schema<IUser>({
+  walletAddress: { type: String, required: true, unique: true },
   email: { type: String, unique: true, sparse: true },
   firstName: String,
   lastName: String,

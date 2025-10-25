@@ -4,14 +4,13 @@ import express, { type Request, Response, NextFunction, RequestHandler } from "e
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import session, { Session, SessionData } from 'express-session';
-import passport from 'passport';
 
 declare module 'express-session' {
   interface SessionData {
+    walletAddress?: string;
     user?: {
-      claims: { sub: string };
-      access_token: string;
-      expires_at: number;
+      walletAddress: string;
+      role: string;
     };
   }
 }
@@ -136,10 +135,6 @@ const sessionMiddleware: RequestHandler = (req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(sessionMiddleware);
-
-// Initialize Passport
-app.use(passport.initialize());
-app.use(passport.session());
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
