@@ -28,6 +28,18 @@ declare global {
 const sessions: Record<string, any> = {};
 const app = express();
 
+// Configure CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:5000');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Custom session middleware
 const sessionMiddleware: RequestHandler = (req, res, next) => {
   // Get session ID from cookie or generate a new one

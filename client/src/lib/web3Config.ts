@@ -1,5 +1,6 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { celoAlfajores } from 'wagmi/chains';
+import { http } from 'viem';
 
 // Get WalletConnect Project ID from environment or use a placeholder
 // Get your own from https://cloud.walletconnect.com
@@ -10,5 +11,8 @@ export const config = getDefaultConfig({
   appName: 'Campus Food Waste Reduction',
   projectId,
   chains: [celoAlfajores],
+  transports: {
+    [celoAlfajores.id]: http('https://alfajores-forno.celo-testnet.org')
+  },
   ssr: false,
 });
