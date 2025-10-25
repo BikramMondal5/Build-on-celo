@@ -355,7 +355,7 @@ export default function StudentDashboard() {
                             }}
                           >
                             <QrCode className="w-4 h-4 mr-2" />
-                            View Claim Code
+                            Scan Qrcode
                           </Button>
                         </div>
                       )}
