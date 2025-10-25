@@ -118,9 +118,6 @@ export default function StudentDashboard() {
 
   const handleClaimMeal = (foodItemId: string) => {
     if (claimMutation.isPending) return;
-    console.log('Frontend: Claiming meal with ID:', foodItemId);
-    console.log('Frontend: ID type:', typeof foodItemId);
-    console.log('Frontend: ID length:', foodItemId?.length);
     setSelectedMeal(foodItemId);
     claimMutation.mutate(foodItemId);
   };
