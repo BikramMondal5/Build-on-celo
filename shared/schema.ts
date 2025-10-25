@@ -25,14 +25,15 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table (required for Replit Auth)
+// User storage table
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id").primaryKey(), // Will store wallet address
+  walletAddress: varchar("wallet_address").unique().notNull(), // Primary identifier
   email: varchar("email").unique(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: varchar("role").default("student"), // student, admin, or null (pending approval)
+  role: varchar("role").default("student"), // student, admin
   studentId: varchar("student_id"),
   phoneNumber: varchar("phone_number"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -161,6 +162,7 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
+  walletAddress: true,
   email: true,
   firstName: true,
   lastName: true,

@@ -5,52 +5,128 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
-import { ArrowLeft, Mail, Shield, Users, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Wallet, Shield, Users } from "lucide-react";
 import { useLocation } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount, useSignMessage, useDisconnect } from 'wagmi';
+import { useToast } from "@/hooks/use-toast";
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const [isAuthenticating, setIsAuthenticating] = React.useState(false);
-  const [isAdminAuthenticating, setIsAdminAuthenticating] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState("student");
+  const { address, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const { disconnect } = useDisconnect();
+  const { toast } = useToast();
   
   // Admin password verification states
   const [adminPassword, setAdminPassword] = React.useState("");
-  const [showPassword, setShowPassword] = React.useState(false);
   const [isPasswordVerified, setIsPasswordVerified] = React.useState(false);
   const [isVerifyingPassword, setIsVerifyingPassword] = React.useState(false);
   const [passwordError, setPasswordError] = React.useState("");
+  const [isAuthenticating, setIsAuthenticating] = React.useState(false);
 
-  // Check for authentication errors and tab parameter
+  // Check for tab parameter
   React.useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const authError = urlParams.get('error');
     const tabParam = urlParams.get('tab');
-    
-    if (authError === 'auth_failed') {
-      // Clear the URL parameters
-      window.history.replaceState({}, document.title, '/login');
-      // You could show a toast notification here
-      console.error('Authentication failed');
-    }
 
     if (tabParam === 'admin') {
       setActiveTab('admin');
     }
   }, []);
 
-  const handleStudentLogin = () => {
+  // Handle wallet authentication when connected
+  const handleWalletAuth = React.useCallback(async () => {
+    if (!address || !isConnected) return;
+    
+    // For admin, require password verification first
+    if (activeTab === 'admin' && !isPasswordVerified) {
+      toast({
+        title: "Password Required",
+        description: "Please verify admin password before connecting wallet",
+        variant: "destructive",
+      });
+      disconnect();
+      return;
+    }
+    
     setIsAuthenticating(true);
-    // Redirect to Google OAuth endpoint for student login
-    window.location.href = "/api/auth/google?role=student";
-  };
+    
+    try {
+      // Create a message to sign
+      const message = `Sign this message to authenticate with Campus Food Waste Reduction.\n\nWallet: ${address}\nTimestamp: ${Date.now()}`;
+      
+      // Request signature
+      const signature = await signMessageAsync({ message });
+      
+      // Send authentication request to backend
+      const response = await fetch("/api/auth/wallet", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          address,
+          signature,
+          message,
+          role: activeTab === 'admin' && isPasswordVerified ? 'admin' : 'student',
+        }),
+      });
 
-  const handleAdminLogin = () => {
-    setIsAdminAuthenticating(true);
-    // Redirect to Google OAuth endpoint for admin login (role will be null initially)
-    window.location.href = "/api/auth/google?role=admin";
-  };
+      if (response.ok) {
+        const data = await response.json();
+        
+        toast({
+          title: "Success!",
+          description: "Wallet authenticated successfully",
+        });
+        
+        // Redirect based on role
+        if (data.user.role === 'admin') {
+          setLocation('/admin');
+        } else {
+          setLocation('/student');
+        }
+      } else {
+        const error = await response.json();
+        toast({
+          title: "Authentication Failed",
+          description: error.message || "Failed to authenticate wallet",
+          variant: "destructive",
+        });
+        disconnect();
+      }
+    } catch (error: any) {
+      console.error('Wallet authentication error:', error);
+      
+      if (error.message?.includes('User rejected')) {
+        toast({
+          title: "Signature Rejected",
+          description: "You need to sign the message to authenticate",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Authentication Error",
+          description: error.message || "An error occurred during authentication",
+          variant: "destructive",
+        });
+      }
+      
+      disconnect();
+    } finally {
+      setIsAuthenticating(false);
+    }
+  }, [address, isConnected, activeTab, isPasswordVerified, signMessageAsync, disconnect, setLocation, toast]);
+
+  // Trigger authentication when wallet connects
+  React.useEffect(() => {
+    if (isConnected && address && !isAuthenticating) {
+      handleWalletAuth();
+    }
+  }, [isConnected, address]);
 
   const handlePasswordVerification = async () => {
     if (!adminPassword.trim()) {
@@ -62,8 +138,6 @@ export default function Login() {
     setPasswordError("");
 
     try {
-      console.log('Sending password verification request:', { password: adminPassword });
-      
       const response = await fetch("/api/auth/verify-admin-password", {
         method: "POST",
         headers: {
@@ -72,12 +146,13 @@ export default function Login() {
         body: JSON.stringify({ password: adminPassword }),
       });
 
-      console.log('Response status:', response.status);
-      console.log('Response ok:', response.ok);
-
       if (response.ok) {
         setIsPasswordVerified(true);
         setPasswordError("");
+        toast({
+          title: "Password Verified",
+          description: "Now connect your wallet to continue",
+        });
       } else {
         const errorData = await response.json();
         setPasswordError(errorData.message || "Invalid admin password");
@@ -89,19 +164,13 @@ export default function Login() {
     }
   };
 
-  const handleAdminGoogleLogin = () => {
-    if (!isPasswordVerified) {
-      setPasswordError("Please verify admin password first");
-      return;
-    }
-    setIsAdminAuthenticating(true);
-    window.location.href = "/api/auth/google?role=admin";
-  };
-
   const resetAdminLogin = () => {
     setIsPasswordVerified(false);
     setAdminPassword("");
     setPasswordError("");
+    if (isConnected) {
+      disconnect();
+    }
   };
 
   const handleBackToLanding = () => {
@@ -131,13 +200,13 @@ export default function Login() {
           <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 shadow-2xl">
             <CardHeader className="text-center pb-6">
               <div className="mx-auto mb-4 w-16 h-16 bg-gradient-to-br from-forest to-forest-dark rounded-2xl flex items-center justify-center shadow-lg">
-                <Mail className="w-8 h-8 text-white" />
+                <Wallet className="w-8 h-8 text-white" />
               </div>
               <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
                 Campus Login
               </CardTitle>
               <CardDescription className="text-gray-600 dark:text-gray-300">
-                Sign in with your Google account to access the campus food claiming system
+                Connect your wallet to access the campus food claiming system
               </CardDescription>
             </CardHeader>
             
@@ -155,61 +224,23 @@ export default function Login() {
                 </TabsList>
 
                 <TabsContent value="student" className="space-y-6">
-                  {/* Student Login Section */}
-                  <div className="text-center">
+                  {/* Student Wallet Connection */}
+                  <div className="text-center space-y-4">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Connect your wallet to sign in as a student
+                    </p>
                     
-                  </div>
-
-                  <Button
-                    onClick={handleStudentLogin}
-                    disabled={isAuthenticating}
-                    className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 py-6 text-lg font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isAuthenticating ? (
-                      <>
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-600 mr-3"></div>
+                    <div className="flex justify-center">
+                      <ConnectButton />
+                    </div>
+                    
+                    {isAuthenticating && (
+                      <div className="flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-forest"></div>
                         Authenticating...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-6 h-6 mr-3" viewBox="0 0 24 24">
-                          <path
-                            fill="#4285F4"
-                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                          />
-                          <path
-                            fill="#34A853"
-                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                          />
-                          <path
-                            fill="#FBBC05"
-                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                          />
-                          <path
-                            fill="#EA4335"
-                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                          />
-                        </svg>
-                        Continue with Google
-                      </>
+                      </div>
                     )}
-                  </Button>
-
-                  {/* MetaMask Wallet Connection Button */}
-                  <Button
-                    onClick={() => {
-                      // TODO: Implement MetaMask wallet connection
-                      console.log('Connect with MetaMask wallet');
-                    }}
-                    className="w-full bg-gray-800 dark:bg-gray-700 text-white border-2 border-gray-600 dark:border-gray-500 hover:bg-gray-700 dark:hover:bg-gray-600 hover:border-gray-500 dark:hover:border-gray-400 transition-all duration-200 py-6 text-lg font-medium shadow-lg hover:shadow-xl"
-                  >
-                    <img 
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/MetaMask_Fox.svg/1200px-MetaMask_Fox.svg.png" 
-                      alt="MetaMask" 
-                      className="w-6 h-6 mr-3"
-                    />
-                    Connect with Wallet
-                  </Button>
+                  </div>
 
                   {/* Student Features */}
                   <div className="space-y-3 pt-4">
@@ -233,7 +264,9 @@ export default function Login() {
                   {!isPasswordVerified ? (
                     <>
                       <div className="text-center">
-                       
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                          Enter admin password to proceed
+                        </p>
                       </div>
 
                       <div className="space-y-4">
@@ -241,24 +274,15 @@ export default function Login() {
                           <Label htmlFor="admin-password" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                             Admin Password
                           </Label>
-                          <div className="relative">
-                            <Input
-                              id="admin-password"
-                              type={showPassword ? "text" : "password"}
-                              placeholder="Enter admin password"
-                              value={adminPassword}
-                              onChange={(e) => setAdminPassword(e.target.value)}
-                              onKeyPress={(e) => e.key === 'Enter' && handlePasswordVerification()}
-                              className="pr-10 bg-gray-800 dark:bg-gray-800 text-white placeholder:text-gray-400 focus:border-forest focus:ring-forest border-gray-700"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                            >
-                              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
-                          </div>
+                          <Input
+                            id="admin-password"
+                            type="password"
+                            placeholder="Enter admin password"
+                            value={adminPassword}
+                            onChange={(e) => setAdminPassword(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handlePasswordVerification()}
+                            className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-forest focus:ring-forest"
+                          />
                         </div>
 
                         {passwordError && (
@@ -285,73 +309,35 @@ export default function Login() {
                     </>
                   ) : (
                     <>
-                      {/* Admin Google Login Section */}
-                      <div className="text-center">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                          Password Verified ✓
-                        </h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-                          Now continue with Google authentication
-                        </p>
-                        <Button
-                          variant="outline"
-                          onClick={resetAdminLogin}
-                          className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                        >
-                          Use different password
-                        </Button>
-                      </div>
-
-                      <Button
-                        onClick={handleAdminGoogleLogin}
-                        disabled={isAdminAuthenticating}
-                        className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 py-6 text-lg font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isAdminAuthenticating ? (
-                          <>
-                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-600 mr-3"></div>
+                      {/* Admin Wallet Connection */}
+                      <div className="text-center space-y-4">
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                            Password Verified ✓
+                          </h3>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                            Now connect your wallet to continue as admin
+                          </p>
+                          <Button
+                            variant="outline"
+                            onClick={resetAdminLogin}
+                            className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                          >
+                            Use different password
+                          </Button>
+                        </div>
+                        
+                        <div className="flex justify-center">
+                          <ConnectButton />
+                        </div>
+                        
+                        {isAuthenticating && (
+                          <div className="flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-forest"></div>
                             Authenticating...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-6 h-6 mr-3" viewBox="0 0 24 24">
-                              <path
-                                fill="#4285F4"
-                                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                              />
-                              <path
-                                fill="#34A853"
-                                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                              />
-                              <path
-                                fill="#FBBC05"
-                                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                              />
-                              <path
-                                fill="#EA4335"
-                                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                              />
-                            </svg>
-                            Continue with Google
-                          </>
+                          </div>
                         )}
-                      </Button>
-
-                      {/* MetaMask Wallet Connection Button */}
-                      <Button
-                        onClick={() => {
-                          // TODO: Implement MetaMask wallet connection
-                          console.log('Connect with MetaMask wallet (Admin)');
-                        }}
-                        className="w-full bg-gray-800 dark:bg-gray-700 text-white border-2 border-gray-600 dark:border-gray-500 hover:bg-gray-700 dark:hover:bg-gray-600 hover:border-gray-500 dark:hover:border-gray-400 transition-all duration-200 py-6 text-lg font-medium shadow-lg hover:shadow-xl"
-                      >
-                        <img 
-                          src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/MetaMask_Fox.svg/1200px-MetaMask_Fox.svg.png" 
-                          alt="MetaMask" 
-                          className="w-6 h-6 mr-3"
-                        />
-                        Connect with Wallet
-                      </Button>
+                      </div>
                     </>
                   )}
 
@@ -370,8 +356,6 @@ export default function Login() {
                       <span>Monitor food waste and analytics</span>
                     </div>
                   </div>
-
-
                 </TabsContent>
               </Tabs>
             </CardContent>
@@ -379,9 +363,8 @@ export default function Login() {
 
           {/* Footer note */}
           <div className="text-center mt-6 text-xs text-gray-500 dark:text-gray-400">
-            
+            Powered by Celo Blockchain
           </div>
-        <div></div>
         </div>
       </div>
 

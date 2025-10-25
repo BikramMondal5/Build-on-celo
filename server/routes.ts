@@ -1,93 +1,27 @@
 import express, { type Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import passport from "passport";
-import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { insertFoodItemSchema, insertFoodClaimSchema, insertEventSchema } from "@shared/schema";
 import { generateClaimCode } from "@shared/qr-utils";
 import { z } from "zod";
+import { verifyMessage } from 'viem';
 import 'express-session';
 
-// Extend session interface for demo auth
+// Extend session interface
 declare module 'express-session' {
   interface SessionData {
+    walletAddress?: string;
     user?: {
-      claims: { sub: string };
-      access_token: string;
-      expires_at: number;
+      walletAddress: string;
+      role: string;
     };
   }
 }
 
-// Google OAuth Configuration
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'your-google-client-id';
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || 'your-google-client-secret';
-const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || 
-  (process.env.NODE_ENV === 'production' 
-    ? 'https://re-plate.onrender.com/api/auth/google/callback'
-    : 'http://localhost:5000/api/auth/google/callback');
-
-// Configure Passport
-passport.use(new GoogleStrategy({
-  clientID: GOOGLE_CLIENT_ID,
-  clientSecret: GOOGLE_CLIENT_SECRET,
-  callbackURL: GOOGLE_CALLBACK_URL,
-  scope: ['profile', 'email']
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    console.log('Google OAuth profile received:', profile);
-    console.log('Profile emails:', profile.emails);
-    
-    // Check if user exists
-    let user = await storage.getUserByEmail(profile.emails?.[0]?.value || '');
-    console.log('Existing user found:', user);
-    
-    if (!user) {
-      console.log('Creating new user for email:', profile.emails?.[0]?.value);
-      // Create new user with role based on OAuth request
-      user = await storage.upsertUser({
-        id: profile.id, // Use profile.id as the string ID
-        email: profile.emails?.[0]?.value || '',
-        firstName: profile.name?.givenName || '',
-        lastName: profile.name?.familyName || '',
-        profileImageUrl: profile.photos?.[0]?.value || '',
-        role: 'student',
-        studentId: `STU${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-        phoneNumber: '',
-      });
-      console.log('New user created:', user);
-    }
-    
-    console.log('Returning user to passport:', user);
-    return done(null, user);
-  } catch (error) {
-    console.error('Google OAuth strategy error:', error);
-    return done(error as Error);
-  }
-}));
-
-passport.serializeUser((user: any, done) => {
-  // Ensure we're storing the string ID, not ObjectId
-  const userId = user._id ? user._id.toString() : user.id;
-  console.log('Serializing user ID:', userId);
-  done(null, userId);
-});
-
-passport.deserializeUser(async (id: string, done) => {
-  try {
-    console.log('Passport deserializeUser called with ID:', id);
-    const user = await storage.getUser(id);
-    console.log('Deserialized user:', user);
-    done(null, user);
-  } catch (error) {
-    console.error('Passport deserializeUser error:', error);
-    done(error);
-  }
-});
-
+// Configure multer for file uploads
 const multerStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(process.cwd(), 'uploads');
@@ -124,36 +58,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
-  // Auth middleware
-  
-
-
+  // Helper function to get user ID from session
+  const getUserIdFromSession = (req: any): string | null => {
+    if (req.session.walletAddress) {
+      return req.session.walletAddress;
+    }
+    return null;
+  };
 
   // Auth routes
+  
+  // Wallet authentication
+  app.post('/api/auth/wallet', async (req: any, res) => {
+    try {
+      const { address, signature, message, role } = req.body;
+
+      if (!address || !signature || !message) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Verify the signature
+      const isValid = await verifyMessage({
+        address: address as `0x${string}`,
+        message,
+        signature: signature as `0x${string}`,
+      });
+
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid signature" });
+      }
+
+      // Create or update user
+      const user = await storage.createOrUpdateUserByWallet(address, { role: role || 'student' });
+
+      // Create session
+      req.session.walletAddress = address.toLowerCase();
+      req.session.user = {
+        walletAddress: address.toLowerCase(),
+        role: user.role || 'student',
+      };
+
+      await new Promise((resolve, reject) => {
+        req.session.save((err: any) => {
+          if (err) reject(err);
+          else resolve(true);
+        });
+      });
+
+      res.json({ success: true, user });
+    } catch (error) {
+      console.error("Wallet authentication error:", error);
+      res.status(500).json({ message: "Authentication failed" });
+    }
+  });
+
+  // Get current user
   app.get('/api/auth/user', async (req: any, res) => {
     try {
       console.log('Auth user endpoint called');
       console.log('Session:', req.session);
       
-      let user = null;
-      
-      // Check for demo session first
-      if (req.session.user) {
-        console.log('Session user found:', req.session.user);
-        const userId = req.session.user.claims.sub;
-        console.log('Looking up user with ID:', userId);
-        user = await storage.getUser(userId);
-        console.log('Found user:', user);
-      } else {
-        console.log('No session user found');
-      }
-      
-      if (!user) {
-        console.log('No user found, returning 401');
+      if (!req.session.walletAddress) {
         return res.status(401).json({ message: "Unauthorized" });
       }
       
-      console.log('Returning user:', user);
+      const user = await storage.getUserByWalletAddress(req.session.walletAddress);
+      
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
       return res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -175,135 +149,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Test session endpoint
-  app.get('/api/test-session', (req: any, res) => {
-    console.log('Test session endpoint called');
-    console.log('Session:', req.session);
-    console.log('Session ID:', req.session.id);
-    console.log('Session user:', req.session.user);
-    res.json({ 
-      session: req.session, 
-      sessionId: req.session.id,
-      sessionUser: req.session.user,
-      cookies: req.headers.cookie 
-    });
-  });
-
-  // Google OAuth routes
-  app.get('/api/auth/google', (req: any, res, next) => {
-    // Store the role parameter in session for use in callback
-    const role = req.query.role as string;
-    if (role) {
-      req.session.oauthRole = role;
-    }
-    passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
-  });
-
-  app.get('/api/auth/google/callback', 
-    passport.authenticate('google', { failureRedirect: '/login' }),
-    async (req: any, res) => {
-      try {
-        // Successful authentication
-        if (req.user) {
-          console.log('Google OAuth successful for user:', req.user);
-          
-          // Check if this is an admin login request
-          const oauthRole = req.session.oauthRole;
-          let user = req.user;
-          
-          if (oauthRole === 'admin') {
-            // For admin login, directly assign admin role
-            user = await storage.upsertUser({
-              ...req.user,
-              role: 'admin', // Directly assign admin role
-            });
-            console.log('Updated user role to admin:', user);
-          } else if (oauthRole === 'student') {
-            // For student login, explicitly assign student role
-            user = await storage.upsertUser({
-              ...req.user,
-              role: 'student', // Explicitly assign student role
-            });
-            console.log('Updated user role to student:', user);
-          }
-          
-          // Clear the oauth role from session
-          delete req.session.oauthRole;
-          
-          // Create session
-          const userIdString = user._id ? user._id.toString() : user.id;
-            req.session.user = {
-              claims: { sub: userIdString },
-              access_token: 'google-token',
-              expires_at: Math.floor(Date.now() / 1000) + 3600,
-            };
-          
-          // Save session
-          req.session.save((err: any) => {
-            if (err) {
-              console.error('Session save error:', err);
-              return res.redirect('/login?error=session_error');
-            }
-            
-            console.log('Session saved successfully for user:', user.id);
-            
-            // Redirect based on role
-            if (oauthRole === 'admin') {
-              // Admin login - always redirect to admin dashboard
-              res.redirect('/admin');
-            } else {
-              // Student login - redirect to student dashboard
-              res.redirect('/student');
-            }
-          });
-        } else {
-          console.error('No user found after Google OAuth');
-          res.redirect('/login?error=auth_failed');
-        }
-      } catch (error) {
-        console.error('Google OAuth callback error:', error);
-        res.redirect('/login?error=auth_failed');
-      }
-    }
-  );
-
   // Admin password verification route
   app.post('/api/auth/verify-admin-password', async (req: any, res) => {
     try {
-      console.log('Password verification request received');
-      console.log('Request body:', req.body);
-      
       const { password } = req.body;
       
       if (!password) {
-        console.log('No password provided');
         return res.status(400).json({ message: "Password is required" });
       }
 
-      // Get admin password from environment variable
-      const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'; // Default password for development
+      const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
       
-      // For debugging - hardcode the password temporarily
-      const hardcodedPassword = 'admin123';
-      
-      console.log('Password verification attempt:');
-      console.log('Input password:', password);
-      console.log('Expected password:', adminPassword);
-      console.log('Hardcoded password:', hardcodedPassword);
-      console.log('Environment ADMIN_PASSWORD:', process.env.ADMIN_PASSWORD);
-      console.log('NODE_ENV:', process.env.NODE_ENV);
-      console.log('Passwords match (env):', password === adminPassword);
-      console.log('Passwords match (hardcoded):', password === hardcodedPassword);
-      
-      // Try both passwords for debugging
-      if (password === adminPassword || password === hardcodedPassword) {
-        console.log('Password verified successfully');
-        res.json({ 
-          success: true, 
-          message: "Password verified successfully" 
-        });
+      if (password === adminPassword) {
+        res.json({ success: true, message: "Password verified successfully" });
       } else {
-        console.log('Password verification failed');
         res.status(401).json({ message: "Invalid admin password" });
       }
     } catch (error) {
@@ -320,7 +179,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const userId = req.session.user.claims.sub;
+      const userId = getUserIdFromSession(req);
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
       const user = await storage.getUser(userId);
 
       if (!user) {
@@ -351,7 +214,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const userId = req.session.user.claims.sub;
+      const userId = getUserIdFromSession(req);
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
       const user = await storage.getUser(userId);
 
       if (!user || user.role !== 'admin') {
@@ -375,7 +242,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const adminUserId = req.session.user.claims.sub;
+      const adminUserId = getUserIdFromSession(req);
+      if (!adminUserId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
       const adminUser = await storage.getUser(adminUserId);
 
       if (!adminUser || adminUser.role !== 'admin') {
@@ -427,7 +298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -447,7 +318,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let userId = null;
       
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -523,7 +394,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -616,7 +487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -699,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -822,7 +693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -848,7 +719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -874,7 +745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -912,7 +783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check demo session first
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -949,7 +820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let userId = null;
       
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -974,7 +845,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let userId = null;
       
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -1009,7 +880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let userId = null;
       
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -1052,7 +923,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let userId = null;
       
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -1086,11 +957,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Notification endpoints
   app.get('/api/notifications', async (req, res) => {
     try {
-      if (!req.session.user?.claims?.sub) {
+      const userId = getUserIdFromSession(req);
+      if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const notifications = await storage.getNotificationsByUser(req.session.user.claims.sub);
+      const notifications = await storage.getNotificationsByUser(userId);
       res.json(notifications);
     } catch (error) {
       console.error("Error fetching notifications:", error);
@@ -1100,7 +972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/notifications/:id/read', async (req, res) => {
     try {
-      if (!req.session.user?.claims?.sub) {
+      if (!getUserIdFromSession(req)) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -1115,11 +987,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/notifications/read-all', async (req, res) => {
     try {
-      if (!req.session.user?.claims?.sub) {
+      const userId = getUserIdFromSession(req);
+      if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      await storage.markAllNotificationsAsRead(req.session.user.claims.sub);
+      await storage.markAllNotificationsAsRead(userId);
       res.json({ message: "All notifications marked as read" });
     } catch (error) {
       console.error("Error marking all notifications as read:", error);
@@ -1129,11 +1002,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/notifications/unread-count', async (req, res) => {
     try {
-      if (!req.session.user?.claims?.sub) {
+      const userId = getUserIdFromSession(req);
+      if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const count = await storage.getUnreadNotificationCount(req.session.user.claims.sub);
+      const count = await storage.getUnreadNotificationCount(userId);
       res.json({ count });
     } catch (error) {
       console.error("Error fetching unread notification count:", error);
