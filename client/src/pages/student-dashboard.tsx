@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { MealCard } from "@/components/meal-card";
-import { ClaimCodeModal } from "@/components/claim-code-modal";
+import { ClaimCodeModal, type ClaimFormData } from "@/components/claim-code-modal";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,8 +23,10 @@ export default function StudentDashboard() {
   const queryClient = useQueryClient();
   const [selectedMeal, setSelectedMeal] = useState<string | null>(null);
   const [claimCodeModalOpen, setClaimCodeModalOpen] = useState(false);
+  const [claimFormModalOpen, setClaimFormModalOpen] = useState(false);
   const [claimedMeal, setClaimedMeal] = useState<(FoodClaimWithDetails & { foodItem: any }) | null>(null);
   const [canteenFilter, setCanteenFilter] = useState("all");
+  const [pendingClaimData, setPendingClaimData] = useState<ClaimFormData | null>(null);
 
   // Try to refetch auth data if not authenticated and not loading
   React.useEffect(() => {
@@ -68,14 +70,24 @@ export default function StudentDashboard() {
   });
 
   const claimMutation = useMutation({
-    mutationFn: async (foodItemId: string) => {
+    mutationFn: async (data: { foodItemId: string; formData: ClaimFormData }) => {
       const response = await apiRequest("POST", "/api/food-claims", {
-        foodItemId,
-        quantityClaimed: 1,
+        foodItemId: data.foodItemId,
+        quantityClaimed: data.formData.numberOfItems,
+        // You can store additional form data here if your backend supports it
+        metadata: {
+          name: data.formData.name,
+          email: data.formData.email,
+          phoneNumber: data.formData.phoneNumber,
+          organization: data.formData.organization,
+        },
       });
       return response.json();
     },
     onSuccess: (newClaim) => {
+      // Close the form modal
+      setClaimFormModalOpen(false);
+      
       toast({
         title: "Meal Claimed Successfully!",
         description: "Your claim code is ready. Show it to canteen staff to collect your meal.",
@@ -89,6 +101,10 @@ export default function StudentDashboard() {
       // Invalidate and refetch data
       queryClient.invalidateQueries({ queryKey: ["/api/food-items"] });
       queryClient.invalidateQueries({ queryKey: ["/api/food-claims/my"] });
+      
+      // Clear pending data
+      setPendingClaimData(null);
+      setSelectedMeal(null);
     },
     onError: (error) => {
       if (isUnauthorizedError(error)) {
@@ -118,11 +134,17 @@ export default function StudentDashboard() {
 
   const handleClaimMeal = (foodItemId: string) => {
     if (claimMutation.isPending) return;
-    console.log('Frontend: Claiming meal with ID:', foodItemId);
-    console.log('Frontend: ID type:', typeof foodItemId);
-    console.log('Frontend: ID length:', foodItemId?.length);
+    console.log('Frontend: Opening claim form for meal with ID:', foodItemId);
     setSelectedMeal(foodItemId);
-    claimMutation.mutate(foodItemId);
+    // Open the claim form modal instead of directly claiming
+    setClaimFormModalOpen(true);
+  };
+
+  const handleSubmitClaimForm = (formData: ClaimFormData) => {
+    if (!selectedMeal || claimMutation.isPending) return;
+    console.log('Frontend: Submitting claim with form data:', formData);
+    setPendingClaimData(formData);
+    claimMutation.mutate({ foodItemId: selectedMeal, formData });
   };
 
   // Filter food items (remove expired items and apply filters)
@@ -147,8 +169,8 @@ export default function StudentDashboard() {
     return true;
   });
 
-  // Get unique canteens for filter
-  const canteens = Array.from(new Set(foodItems.map(item => item.canteenName)));
+  // Get unique canteens for filter (filter out null/undefined values)
+  const canteens = Array.from(new Set(foodItems.map(item => item.canteenName).filter(Boolean)));
 
   if (authLoading) {
     return (
@@ -276,7 +298,7 @@ export default function StudentDashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {myClaims.map((claim) => (
+                {myClaims.filter(claim => claim.foodItem).map((claim) => (
                   <Card key={claim.id}>
                     <CardContent className="p-6">
                       <div className="flex items-center justify-between">
@@ -349,6 +371,19 @@ export default function StudentDashboard() {
         </Tabs>
       </div>
 
+      {/* Claim Form Modal - shown first when user clicks Claim Meal */}
+      <ClaimCodeModal
+        isOpen={claimFormModalOpen}
+        onClose={() => {
+          setClaimFormModalOpen(false);
+          setSelectedMeal(null);
+        }}
+        claim={null}
+        onSubmitClaim={handleSubmitClaimForm}
+        isClaimForm={true}
+      />
+
+      {/* Success Modal - shown after meal is successfully claimed */}
       <ClaimCodeModal
         isOpen={claimCodeModalOpen}
         onClose={() => setClaimCodeModalOpen(false)}
