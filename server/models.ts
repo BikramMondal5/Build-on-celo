@@ -85,19 +85,37 @@ export interface IFoodClaim extends BaseDocument {
   status: string;
   expiresAt: Date;
   claimedAt?: Date;
+  metadata?: {  // ADD this optional field
+    name?: string;
+    email?: string;
+    phoneNumber?: string;
+    organization?: string;
+  };
   createdAt: Date;
+  updatedAt?: Date;  // ADD this optional field
 }
 
 const foodClaimSchema = new Schema<IFoodClaim>({
   userId: { type: String, required: true, ref: 'User' },
   foodItemId: { type: String, required: true, ref: 'FoodItem' },
   quantityClaimed: { type: Number, default: 1 },
-  claimCode: { type: String, required: true, unique: true },
-  status: { type: String, default: 'reserved' },
+  claimCode: { type: String, default: '' },
+  status: { 
+    type: String, 
+    enum: ['pending', 'reserved', 'claimed', 'expired', 'rejected'],
+    default: 'pending' 
+  },
   expiresAt: { type: Date, required: true },
   claimedAt: Date,
+  metadata: {  // CHANGE to Schema.Types.Mixed
+    type: Schema.Types.Mixed,
+    required: false,
+    default: {}
+  },
   createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date }
 }, {
+  timestamps: true,  // This auto-manages createdAt and updatedAt
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });

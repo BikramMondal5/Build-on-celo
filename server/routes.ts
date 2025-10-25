@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import { sendClaimRequestEmail, sendClaimApprovedEmail, sendClaimRejectedEmail, generateClaimCode } from './email.service';
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import passport from "passport";
@@ -7,7 +8,6 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { insertFoodItemSchema, insertFoodClaimSchema, insertEventSchema } from "@shared/schema";
-import { generateClaimCode } from "@shared/qr-utils";
 import { z } from "zod";
 import 'express-session';
 
@@ -614,7 +614,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       let userId = null;
       
-      // Check demo session first
       if (req.session.user) {
         userId = req.session.user.claims.sub;
       }
@@ -622,7 +621,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
-      const { foodItemId, quantityClaimed = 1 } = req.body;
+
+      const { foodItemId, quantityClaimed = 1, metadata } = req.body;
 
       // Validate food item exists and has availability
       const foodItem = await storage.getFoodItemById(foodItemId);
@@ -630,66 +630,205 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Food item not found or inactive" });
       }
 
-      // Get all active claims for this food item to calculate actual available quantity
-      const activeClaims = await storage.getActiveFoodClaims();
-      const reservedQuantity = activeClaims
-        .filter(claim => claim.foodItemId === foodItemId && claim.status === "reserved")
-        .reduce((sum, claim) => sum + claim.quantityClaimed, 0);
-
-      const actualAvailableQuantity = foodItem.quantityAvailable - reservedQuantity;
-
-      if (actualAvailableQuantity < quantityClaimed) {
-        return res.status(400).json({ message: "Insufficient quantity available" });
-      }
-
       if (new Date() >= new Date(foodItem.availableUntil)) {
         return res.status(400).json({ message: "Food item is no longer available" });
       }
 
-      // Check if user has already claimed this food item
+      // Check if user has already claimed this food item with any status
       const hasAlreadyClaimed = await storage.hasUserClaimedFoodItem(userId, foodItemId);
       if (hasAlreadyClaimed) {
         return res.status(400).json({ message: "You have already claimed this food item" });
       }
 
-      // Generate claim code
-      const claimCode = generateClaimCode();
-      
-      // Set expiration (20 minutes from now)
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 20);
-
+      // Create claim with pending status (no claim code yet)
       const claimData = {
         userId,
         foodItemId,
         quantityClaimed,
-        claimCode,
-        status: "reserved" as const,
-        expiresAt,
+        claimCode: '', // Will be generated upon approval
+        status: "pending" as const,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes placeholder
+        metadata,
       };
 
       const claim = await storage.createFoodClaim(claimData);
       
-      // Send notification to the canteen admin about the claim
-      try {
-        const user = await storage.getUser(userId);
-        await storage.createNotification({
-          userId: foodItem.createdBy,
-          title: "New Food Claim!",
-          message: `${user?.firstName || 'A student'} has claimed ${quantityClaimed} ${quantityClaimed === 1 ? 'item' : 'items'} of "${foodItem.name}". Claim code: ${claimCode}`,
-          type: "info",
-          relatedItemId: claim.id,
-          relatedItemType: "claim"
-        });
-      } catch (notificationError) {
-        console.error("Error sending claim notification:", notificationError);
-        // Don't fail the claim if notification fails
+      // Send email notification to student
+      const user = await storage.getUser(userId);
+      if (user?.email) {
+        try {
+          await sendClaimRequestEmail(
+            user.email,
+            user.firstName || 'Student',
+            foodItem.name,
+            foodItem.canteenName
+          );
+        } catch (emailError) {
+          console.error('Failed to send email:', emailError);
+          // Continue even if email fails
+        }
       }
       
       res.status(201).json(claim);
     } catch (error) {
       console.error("Error creating food claim:", error);
       res.status(500).json({ message: "Failed to claim food item" });
+    }
+  });
+
+  // Add new endpoint to get pending claims (admin only)
+  app.get('/api/food-claims/pending', async (req: any, res) => {
+    try {
+      let userId = null;
+      
+      if (req.session.user) {
+        userId = req.session.user.claims.sub;
+      }
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ message: "Only admin can view pending claims" });
+      }
+
+      const claims = await storage.getPendingFoodClaims();
+      res.json(claims);
+    } catch (error) {
+      console.error("Error fetching pending claims:", error);
+      res.status(500).json({ message: "Failed to fetch pending claims" });
+    }
+  });
+
+  // Add new endpoint to approve a claim (admin only)
+  app.put('/api/food-claims/:id/approve', async (req: any, res) => {
+    try {
+      let userId = null;
+      
+      if (req.session.user) {
+        userId = req.session.user.claims.sub;
+      }
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ message: "Only admin can approve claims" });
+      }
+
+      const { id } = req.params;
+      const claim = await storage.getFoodClaimById(id);
+      
+      if (!claim) {
+        return res.status(404).json({ message: "Claim not found" });
+      }
+
+      if (claim.status !== 'pending') {
+        return res.status(400).json({ message: "Only pending claims can be approved" });
+      }
+
+      // Generate unique claim code
+      const claimCode = generateClaimCode();
+      
+      // Set new expiration (30 minutes from now)
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 30);
+
+      // Update claim status to reserved with claim code
+      const updatedClaim = await storage.updateFoodClaimWithCode(id, claimCode, "reserved", expiresAt);
+      
+      // Get food item details
+      const foodItem = await storage.getFoodItemById(claim.foodItemId);
+      
+      // Get user details
+      const claimUser = await storage.getUser(claim.userId);
+      
+      // Send approval email with claim code
+      if (claimUser?.email && foodItem) {
+        try {
+          await sendClaimApprovedEmail(
+            claimUser.email,
+            claimUser.firstName || 'Student',
+            foodItem.name,
+            foodItem.canteenName,
+            claimCode,
+            expiresAt
+          );
+        } catch (emailError) {
+          console.error('Failed to send approval email:', emailError);
+        }
+      }
+      
+      res.json(updatedClaim);
+    } catch (error) {
+      console.error("Error approving claim:", error);
+      res.status(500).json({ message: "Failed to approve claim" });
+    }
+  });
+
+  // Add new endpoint to reject a claim (admin only)
+  app.put('/api/food-claims/:id/reject', async (req: any, res) => {
+    try {
+      let userId = null;
+      
+      if (req.session.user) {
+        userId = req.session.user.claims.sub;
+      }
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ message: "Only admin can reject claims" });
+      }
+
+      const { id } = req.params;
+      const { reason } = req.body;
+      
+      const claim = await storage.getFoodClaimById(id);
+      
+      if (!claim) {
+        return res.status(404).json({ message: "Claim not found" });
+      }
+
+      if (claim.status !== 'pending') {
+        return res.status(400).json({ message: "Only pending claims can be rejected" });
+      }
+
+      // Update claim status to rejected
+      const updatedClaim = await storage.updateFoodClaimStatus(id, "rejected");
+      
+      // Get food item details
+      const foodItem = await storage.getFoodItemById(claim.foodItemId);
+      
+      // Get user details
+      const claimUser = await storage.getUser(claim.userId);
+      
+      // Send rejection email
+      if (claimUser?.email && foodItem) {
+        try {
+          await sendClaimRejectedEmail(
+            claimUser.email,
+            claimUser.firstName || 'Student',
+            foodItem.name,
+            foodItem.canteenName,
+            reason
+          );
+        } catch (emailError) {
+          console.error('Failed to send rejection email:', emailError);
+        }
+      }
+      
+      res.json(updatedClaim);
+    } catch (error) {
+      console.error("Error rejecting claim:", error);
+      res.status(500).json({ message: "Failed to reject claim" });
     }
   });
 

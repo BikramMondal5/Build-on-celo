@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import type { FoodItemWithCreator, FoodClaimWithDetails } from "@shared/schema";
-import { QrCode, Clock, CheckCircle, X } from "lucide-react";
+import { QrCode, Clock, CheckCircle, X, XCircle } from "lucide-react";
 import { formatTimeRemaining } from "@/lib/qr-utils";
 
 export default function StudentDashboard() {
@@ -213,7 +213,7 @@ export default function StudentDashboard() {
               </Select>
             </div>
           </div>
-
+          
           <TabsContent value="browse" className="space-y-6">
             {/* Meal Cards Grid */}
             {itemsLoading ? (
@@ -251,12 +251,14 @@ export default function StudentDashboard() {
                     onClaim={handleClaimMeal}
                     isLoading={claimMutation.isPending && selectedMeal === meal.id}
                     userClaims={myClaims}
+                    isPendingApproval={myClaims.some(
+                      claim => claim.foodItemId === meal.id && claim.status === "pending"
+                    )}
                   />
                 ))}
               </div>
             )}
           </TabsContent>
-
           <TabsContent value="claims" className="space-y-6">
             {claimsLoading ? (
               <div className="space-y-4">
@@ -305,6 +307,10 @@ export default function StudentDashboard() {
                               <CheckCircle className="w-8 h-8 text-green-600" />
                             ) : claim.status === "expired" ? (
                               <X className="w-8 h-8 text-red-600" />
+                            ) : claim.status === "rejected" ? (
+                              <XCircle className="w-8 h-8 text-red-600" />
+                            ) : claim.status === "pending" ? (
+                              <Clock className="w-8 h-8 text-yellow-600" />
                             ) : (
                               <QrCode className="w-8 h-8 text-forest" />
                             )}
@@ -326,12 +332,21 @@ export default function StudentDashboard() {
                             variant={
                               claim.status === "claimed" ? "default" :
                               claim.status === "expired" ? "destructive" :
+                              claim.status === "rejected" ? "destructive" :
+                              claim.status === "pending" ? "secondary" :
                               "secondary"
                             }
                             className="mb-2"
                           >
-                            {claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
+                            {claim.status === "pending" ? "Pending Approval" : 
+                            claim.status === "rejected" ? "Rejected" :
+                            claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
                           </Badge>
+                          {claim.status === "pending" && (
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              Waiting for admin approval
+                            </p>
+                          )}
                           {claim.status === "reserved" && (
                             <p className="text-sm text-gray-600 dark:text-gray-400">
                               Expires: {formatTimeRemaining(claim.expiresAt.toString())}
@@ -340,6 +355,11 @@ export default function StudentDashboard() {
                           {claim.status === "claimed" && claim.claimedAt && (
                             <p className="text-sm text-gray-600 dark:text-gray-400">
                               Collected: {new Date(claim.claimedAt).toLocaleDateString()}
+                            </p>
+                          )}
+                          {claim.status === "rejected" && (
+                            <p className="text-sm text-red-600 dark:text-red-400">
+                              Request was not approved
                             </p>
                           )}
                         </div>

@@ -20,6 +20,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { insertFoodItemSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { CheckCircle, XCircle, User } from "lucide-react";
 import type { FoodItem, FoodItemWithCreator, FoodDonationWithDetails } from "@shared/schema";
 interface FoodItemWithId extends FoodItemWithCreator {
   _id?: string;
@@ -37,7 +38,26 @@ interface CampusStats {
   currentlyActiveItems: number;
   totalQuantityAvailable: number;
 }
-import { Plus, Utensils, TrendingUp, DollarSign, Edit, Trash2, MoreHorizontal, ShieldCheck, CheckCircle, Heart, Users, Phone, Clock, AlertTriangle, Leaf, Droplets, Recycle, CheckSquare, Package, Calendar } from "lucide-react";
+interface PendingClaim {
+  id: string;
+  userId: string;
+  foodItemId: string;
+  quantityClaimed: number;
+  status: string;
+  createdAt: Date;
+  user: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    profileImageUrl?: string;
+  };
+  foodItem: {
+    name: string;
+    canteenName: string;
+    imageUrl?: string;
+  };
+}
+import { Plus, Utensils, TrendingUp, DollarSign, Edit, Trash2, MoreHorizontal, ShieldCheck, Heart, Users, Phone, Clock, AlertTriangle, Leaf, Droplets, Recycle, CheckSquare, Package, Calendar } from "lucide-react";
 import { EventCalendar } from "@/components/calendar/event-calendar";
 import { formatTimeRemaining } from "@/lib/qr-utils";
 import { z } from "zod";
@@ -101,7 +121,61 @@ export default function AdminDashboard() {
     enabled: !!user && user.role === "admin",
   });
 
+  const { data: pendingClaims = [], isLoading: pendingClaimsLoading } = useQuery<PendingClaim[]>({
+    queryKey: ["/api/food-claims/pending"],
+    enabled: !!user && user.role === "admin",
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
 
+  // Add these mutations (put with other mutations):
+  const approveClaimMutation = useMutation({
+    mutationFn: async (claimId: string) => {
+      const response = await apiRequest("PUT", `/api/food-claims/${claimId}/approve`, {});
+      if (!response.ok) {
+        throw new Error("Failed to approve claim");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Claim Approved",
+        description: "The student will receive an email with their claim code.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/food-claims/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/food-items"] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to approve claim.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const rejectClaimMutation = useMutation({
+    mutationFn: async ({ claimId, reason }: { claimId: string; reason?: string }) => {
+      const response = await apiRequest("PUT", `/api/food-claims/${claimId}/reject`, { reason });
+      if (!response.ok) {
+        throw new Error("Failed to reject claim");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Claim Rejected",
+        description: "The student has been notified.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/food-claims/pending"] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to reject claim.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -592,10 +666,20 @@ export default function AdminDashboard() {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="manage" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3 bg-gray-800/50">
-            <TabsTrigger value="manage" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">Manage Items</TabsTrigger>
-            <TabsTrigger value="unclaimed" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">Unclaimed</TabsTrigger>
-            <TabsTrigger value="calendar" data-testid="tab-calendar" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
+          <TabsList className="grid w-full grid-cols-4 bg-gray-800/50">
+            <TabsTrigger value="manage" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
+              Manage Items
+            </TabsTrigger>
+            <TabsTrigger value="pending" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
+              Pending Approval
+              {pendingClaims.length > 0 && (
+                <Badge className="ml-2 bg-red-500">{pendingClaims.length}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="unclaimed" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
+              Unclaimed
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
               <Calendar className="h-4 w-4 mr-2" />
               Calendar
             </TabsTrigger>
@@ -843,7 +927,7 @@ export default function AdminDashboard() {
                   <TableBody>
                     {myItems.map((item) => (
                       <TableRow key={item.id}>
-                                                 <TableCell className="max-w-[200px]">
+                        <TableCell className="max-w-[200px]">
                            <div className="flex items-center space-x-2">
                              <div className="w-8 h-8 bg-gray-200 dark:bg-gray-800 rounded flex-shrink-0 flex items-center justify-center">
                                {item.imageUrl ? (
@@ -924,6 +1008,135 @@ export default function AdminDashboard() {
               </div>
             )}
               </div>
+            </div>
+          </TabsContent>
+          <TabsContent value="pending" className="space-y-6">
+            <div className="bg-gray-800/80 backdrop-blur-sm rounded-2xl p-6">
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                  <Clock className="w-5 h-5" />
+                  Pending Claim Approvals
+                </h3>
+                <p className="text-gray-300">
+                  Review and approve or reject student meal claims
+                </p>
+              </div>
+
+              {pendingClaimsLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-forest mx-auto mb-4"></div>
+                  <p className="text-gray-400">Loading pending claims...</p>
+                </div>
+              ) : pendingClaims.length === 0 ? (
+                <div className="text-center py-12">
+                  <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">
+                    All Caught Up!
+                  </h3>
+                  <p className="text-gray-400">
+                    No pending claims to review at the moment.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[200px]">Student</TableHead>
+                        <TableHead className="w-[200px]">Food Item</TableHead>
+                        <TableHead className="w-[120px]">Canteen</TableHead>
+                        <TableHead className="w-[100px]">Quantity</TableHead>
+                        <TableHead className="w-[150px]">Requested</TableHead>
+                        <TableHead className="w-[200px] text-center">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pendingClaims.map((claim) => (
+                        <TableRow key={claim.id}>
+                          <TableCell>
+                            <div className="flex items-center space-x-3">
+                              <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                {claim.user.profileImageUrl ? (
+                                  <img
+                                    src={claim.user.profileImageUrl}
+                                    alt={`${claim.user.firstName} ${claim.user.lastName}`}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      // Fallback to User icon if image fails to load
+                                      (e.target as HTMLImageElement).style.display = 'none';
+                                      (e.target as HTMLImageElement).parentElement!.innerHTML = '<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>';
+                                    }}
+                                  />
+                                ) : (
+                                  <User className="w-5 h-5 text-gray-400" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-white truncate">
+                                  {claim.user.firstName} {claim.user.lastName}
+                                </p>
+                                <p className="text-xs text-gray-400 truncate">
+                                  {claim.user.email}
+                                </p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-10 h-10 bg-gray-700 rounded flex-shrink-0 flex items-center justify-center">
+                                {claim.foodItem.imageUrl ? (
+                                  <img
+                                    src={claim.foodItem.imageUrl}
+                                    alt={claim.foodItem.name}
+                                    className="w-full h-full object-cover rounded"
+                                  />
+                                ) : (
+                                  <Utensils className="w-5 h-5 text-gray-400" />
+                                )}
+                              </div>
+                              <p className="font-medium text-white truncate">
+                                {claim.foodItem.name}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-gray-300">
+                            {claim.foodItem.canteenName}
+                          </TableCell>
+                          <TableCell className="text-white font-medium">
+                            {claim.quantityClaimed}
+                          </TableCell>
+                          <TableCell className="text-gray-400 text-sm">
+                            {new Date(claim.createdAt).toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-center gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => approveClaimMutation.mutate(claim.id)}
+                                disabled={approveClaimMutation.isPending}
+                                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1"
+                              >
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => rejectClaimMutation.mutate({ claimId: claim.id })}
+                                disabled={rejectClaimMutation.isPending}
+                                className="px-3 py-1"
+                              >
+                                <XCircle className="w-4 h-4 mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
           </TabsContent>
 
@@ -1163,8 +1376,6 @@ export default function AdminDashboard() {
               </div>
             </div>
           </TabsContent>
-
-
 
           <TabsContent value="calendar" className="space-y-6">
             <EventCalendar />
