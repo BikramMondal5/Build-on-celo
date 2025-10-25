@@ -129,7 +129,9 @@ export default function StudentDashboard() {
 
   const handleClaimMeal = (foodItemId: string) => {
     if (claimMutation.isPending) return;
-    console.log('Frontend: Opening claim form for meal with ID:', foodItemId);
+    console.log('Frontend: Claiming meal with ID:', foodItemId);
+    console.log('Frontend: ID type:', typeof foodItemId);
+    console.log('Frontend: ID length:', foodItemId?.length);
     setSelectedMeal(foodItemId);
     // Open the claim form modal instead of directly claiming
     setClaimFormModalOpen(true);

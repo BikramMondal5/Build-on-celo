@@ -1,14 +1,15 @@
-import type { Express } from "express";
+import express, { type Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
-
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { insertFoodItemSchema, insertFoodClaimSchema, insertEventSchema } from "@shared/schema";
 import { generateClaimCode } from "@shared/qr-utils";
 import { z } from "zod";
 import 'express-session';
-import { FoodItem } from './models';
 
 // Extend session interface for demo auth
 declare module 'express-session' {
@@ -87,8 +88,37 @@ passport.deserializeUser(async (id: string, done) => {
   }
 });
 
+const multerStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'food-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: multerStorage, // Use multerStorage instead of storage
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    if (mimetype && extname) {
+      return cb(null, true);
+    }
+    cb(new Error('Only image files are allowed!'));
+  }
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Debug middleware for all requests
+  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
   app.use((req: any, res, next) => {
     console.log(`${req.method} ${req.path} - Body:`, req.body);
     next();
@@ -412,11 +442,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/food-items', async (req: any, res) => {
+  app.post('/api/food-items', upload.single('image'), async (req: any, res) => {
     try {
       let userId = null;
       
-      // Check demo session first
       if (req.session.user) {
         userId = req.session.user.claims.sub;
       }
@@ -431,10 +460,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Only admin can create food items" });
       }
 
+      // Get image URL from uploaded file
+      const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
+
+      // Parse form data (multer sends everything as strings)
+      const parsedBody = {
+        name: req.body.name,
+        description: req.body.description,
+        canteenName: req.body.canteenName,
+        canteenLocation: req.body.canteenLocation,
+        quantityAvailable: parseInt(req.body.quantityAvailable, 10),
+        availableUntil: req.body.availableUntil,
+        isActive: req.body.isActive === 'true' || req.body.isActive === true,
+      };
+
       const validatedData = insertFoodItemSchema.parse({
-        ...req.body,
+        ...parsedBody,
+        imageUrl,
         createdBy: userId,
       });
+      
       const item = await storage.createFoodItem(validatedData as any);
       
       // Send notifications to users who have claimed from this canteen
@@ -461,6 +506,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(201).json(item);
     } catch (error) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid data", errors: error.errors });
       }
@@ -469,7 +517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/food-items/:id', async (req: any, res) => {
+  app.put('/api/food-items/:id', upload.single('image'), async (req: any, res) => {
     try {
       let userId = null;
       
@@ -494,10 +542,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Food item not found or unauthorized" });
       }
 
-      const validatedData = insertFoodItemSchema.partial().parse(req.body);
+      // Get new image URL if file was uploaded
+      const imageUrl = req.file ? `/uploads/${req.file.filename}` : existingItem.imageUrl;
+
+      // Parse form data (multer sends everything as strings)
+      const parsedBody: any = {
+        name: req.body.name,
+        description: req.body.description,
+        canteenName: req.body.canteenName,
+        canteenLocation: req.body.canteenLocation,
+        imageUrl: imageUrl,
+      };
+
+      // Only parse these if they exist in the request
+      if (req.body.quantityAvailable !== undefined) {
+        parsedBody.quantityAvailable = parseInt(req.body.quantityAvailable, 10);
+      }
+      
+      if (req.body.availableUntil !== undefined) {
+        parsedBody.availableUntil = req.body.availableUntil;
+      }
+      
+      if (req.body.isActive !== undefined) {
+        parsedBody.isActive = req.body.isActive === 'true' || req.body.isActive === true;
+      }
+
+      const validatedData = insertFoodItemSchema.partial().parse(parsedBody);
       const updatedItem = await storage.updateFoodItem(id, validatedData as any);
+      
+      // Delete old image if a new one was uploaded
+      if (req.file && existingItem.imageUrl && existingItem.imageUrl.startsWith('/uploads/')) {
+        const oldImagePath = path.join(process.cwd(), existingItem.imageUrl);
+        if (fs.existsSync(oldImagePath)) {
+          fs.unlinkSync(oldImagePath);
+        }
+      }
+      
       res.json(updatedItem);
     } catch (error) {
+      // Clean up uploaded file if there's an error
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid data", errors: error.errors });
       }
@@ -539,33 +625,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { foodItemId, quantityClaimed = 1 } = req.body;
 
       // Validate food item exists and has availability
-      console.log('=== CLAIM REQUEST ===');
-      console.log('Claiming food item with ID:', foodItemId);
-      console.log('ID type:', typeof foodItemId);
-      console.log('ID length:', foodItemId?.length);
-      console.log('User ID:', userId);
-      
       const foodItem = await storage.getFoodItemById(foodItemId);
-      console.log('Food item lookup result:', foodItem ? { id: foodItem.id, name: foodItem.name, isActive: foodItem.isActive } : 'NOT FOUND');
-      
-      if (!foodItem) {
-        // Debug: Check if item exists at all
-        const allItems = await FoodItem.find({}).limit(10);
-        console.log('Available food items in DB:', allItems.map(item => ({ 
-          _id: item._id.toString(), 
-          id: item.id,
-          name: item.name,
-          isActive: item.isActive
-        })));
-        
-        console.log('Food item not found for ID:', foodItemId);
-        return res.status(404).json({ message: "Food item not found" });
-      }
-      
-      // Check if food item is active (default to true if not set)
-      if (foodItem.isActive === false) {
-        console.log('Food item is inactive:', foodItem);
-        return res.status(404).json({ message: "Food item is inactive" });
+      if (!foodItem || !foodItem.isActive) {
+        return res.status(404).json({ message: "Food item not found or inactive" });
       }
 
       // Get all active claims for this food item to calculate actual available quantity
