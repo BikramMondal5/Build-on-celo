@@ -12,6 +12,7 @@ import Home from "@/pages/home";
 import StudentDashboard from "@/pages/student-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import AdminPending from "@/pages/admin-pending";
+import QrScanner from "@/pages/qr-scanner";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -28,6 +29,7 @@ function Router() {
           <Route path="/student" component={StudentDashboard} />
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin-pending" component={AdminPending} />
+          <Route path="/qr-scanner" component={QrScanner} />
         </>
       )}
       <Route path="/login" component={Login} />

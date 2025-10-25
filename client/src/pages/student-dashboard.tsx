@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Navbar } from "@/components/layout/navbar";
@@ -21,6 +22,7 @@ export default function StudentDashboard() {
   const { user, isLoading: authLoading, refetch } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [selectedMeal, setSelectedMeal] = useState<string | null>(null);
   const [claimCodeModalOpen, setClaimCodeModalOpen] = useState(false);
   const [claimFormModalOpen, setClaimFormModalOpen] = useState(false);
@@ -350,8 +352,10 @@ export default function StudentDashboard() {
                             variant="outline"
                             size="sm"
                             onClick={() => {
-                              setClaimedMeal(claim as any);
-                              setClaimCodeModalOpen(true);
+                              // Store claim data in sessionStorage
+                              sessionStorage.setItem('qr_scan_claim', JSON.stringify(claim));
+                              // Navigate to QR scanner page
+                              navigate('/qr-scanner');
                             }}
                           >
                             <QrCode className="w-4 h-4 mr-2" />
