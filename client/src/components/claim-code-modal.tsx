@@ -6,19 +6,82 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Share2, Copy } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CheckCircle, Share2, Copy, Info } from "lucide-react";
 import { formatTimeRemaining } from "@/lib/qr-utils";
 import { useToast } from "@/hooks/use-toast";
 import type { FoodClaim, FoodItem } from "@shared/schema";
+import { useState } from "react";
 
 interface ClaimCodeModalProps {
   isOpen: boolean;
   onClose: () => void;
   claim: (FoodClaim & { foodItem: FoodItem }) | null;
+  onSubmitClaim?: (formData: ClaimFormData) => void;
+  isClaimForm?: boolean;
 }
 
-export function ClaimCodeModal({ isOpen, onClose, claim }: ClaimCodeModalProps) {
+export interface ClaimFormData {
+  name: string;
+  email: string;
+  phoneNumber: string;
+  organization: string;
+  numberOfItems: number;
+}
+
+export function ClaimCodeModal({ isOpen, onClose, claim, onSubmitClaim, isClaimForm = false }: ClaimCodeModalProps) {
   const { toast } = useToast();
+  const [formData, setFormData] = useState<ClaimFormData>({
+    name: "",
+    email: "",
+    phoneNumber: "",
+    organization: "",
+    numberOfItems: 1,
+  });
+  const [errors, setErrors] = useState<Partial<Record<keyof ClaimFormData, string>>>({});
+
+  const validateForm = () => {
+    const newErrors: Partial<Record<keyof ClaimFormData, string>> = {};
+
+    if (!formData.name.trim()) {
+      newErrors.name = "Name is required";
+    }
+
+    if (!formData.email.trim()) {
+      newErrors.email = "Email is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = "Invalid email format";
+    }
+
+    if (!formData.phoneNumber.trim()) {
+      newErrors.phoneNumber = "Phone number is required";
+    } else if (!/^\+?[\d\s\-()]+$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = "Invalid phone number format";
+    }
+
+    if (formData.numberOfItems < 1) {
+      newErrors.numberOfItems = "Must be at least 1";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = () => {
+    if (validateForm() && onSubmitClaim) {
+      onSubmitClaim(formData);
+    }
+  };
+
+  const handleInputChange = (field: keyof ClaimFormData, value: string | number) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error for this field when user types
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: undefined }));
+    }
+  };
 
   const handleCopyCode = () => {
     if (!claim?.claimCode) return;
@@ -58,7 +121,136 @@ export function ClaimCodeModal({ isOpen, onClose, claim }: ClaimCodeModalProps) 
     }
   };
 
-  if (!claim) return null;
+  // Render claim form if isClaimForm is true
+  if (isClaimForm) {
+    return (
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-center">
+              <div className="flex flex-col items-center">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  Claim Your Meal
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400 text-sm font-normal">
+                  Fill in your details to claim this meal
+                </p>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Important Note */}
+            <Alert className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+              <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
+                <strong>Important:</strong> After claiming, you'll receive a unique claim code. 
+                Please store it securely as you'll need it to collect your meal from the canteen.
+              </AlertDescription>
+            </Alert>
+
+            {/* Name Field */}
+            <div className="space-y-2">
+              <Label htmlFor="name">Name <span className="text-red-500">*</span></Label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="Enter your full name"
+                value={formData.name}
+                onChange={(e) => handleInputChange("name", e.target.value)}
+                className={errors.name ? "border-red-500" : ""}
+              />
+              {errors.name && (
+                <p className="text-sm text-red-500">{errors.name}</p>
+              )}
+            </div>
+
+            {/* Email Field */}
+            <div className="space-y-2">
+              <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="your.email@example.com"
+                value={formData.email}
+                onChange={(e) => handleInputChange("email", e.target.value)}
+                className={errors.email ? "border-red-500" : ""}
+              />
+              {errors.email && (
+                <p className="text-sm text-red-500">{errors.email}</p>
+              )}
+            </div>
+
+            {/* Phone Number Field */}
+            <div className="space-y-2">
+              <Label htmlFor="phoneNumber">Phone Number <span className="text-red-500">*</span></Label>
+              <Input
+                id="phoneNumber"
+                type="tel"
+                placeholder="+1 (555) 123-4567"
+                value={formData.phoneNumber}
+                onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
+                className={errors.phoneNumber ? "border-red-500" : ""}
+              />
+              {errors.phoneNumber && (
+                <p className="text-sm text-red-500">{errors.phoneNumber}</p>
+              )}
+            </div>
+
+            {/* Organization Field */}
+            <div className="space-y-2">
+              <Label htmlFor="organization">Organization (if any)</Label>
+              <Input
+                id="organization"
+                type="text"
+                placeholder="Enter your organization (optional)"
+                value={formData.organization}
+                onChange={(e) => handleInputChange("organization", e.target.value)}
+              />
+            </div>
+
+            {/* Number of Items Field */}
+            <div className="space-y-2">
+              <Label htmlFor="numberOfItems">Number of Order Items <span className="text-red-500">*</span></Label>
+              <Input
+                id="numberOfItems"
+                type="number"
+                min="1"
+                placeholder="1"
+                value={formData.numberOfItems}
+                onChange={(e) => handleInputChange("numberOfItems", parseInt(e.target.value) || 1)}
+                className={errors.numberOfItems ? "border-red-500" : ""}
+              />
+              {errors.numberOfItems && (
+                <p className="text-sm text-red-500">{errors.numberOfItems}</p>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={onClose}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+              >
+                Request
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // Original success modal after claim is completed
+  // Check if we have valid claim data for the success modal
+  if (!claim || !claim.foodItem) return null;
 
   const timeRemaining = formatTimeRemaining(claim.expiresAt.toString());
   const isExpired = timeRemaining === "Expired";

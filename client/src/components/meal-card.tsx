@@ -201,10 +201,18 @@ export const MealCard: React.FC<MealCardProps> = ({
   }, [meal.name]);
 
   // Check if user has already claimed this meal
-  const hasClaimed = useMemo(() => 
-    userClaims.some(claim => 
-      claim.foodItemId === meal.id && 
+  const hasClaimed = useMemo(() =>
+    userClaims.some(claim =>
+      claim.foodItemId === meal.id &&
       (claim.status === 'reserved' || claim.status === 'claimed')
+    ),
+    [userClaims, meal.id]
+  );
+
+  // Check if user has a pending claim for this meal
+  const hasPendingClaim = useMemo(() =>
+    userClaims.some(claim =>
+      claim.foodItemId === meal.id && claim.status === 'reserved'
     ),
     [userClaims, meal.id]
   );
@@ -298,6 +306,8 @@ export const MealCard: React.FC<MealCardProps> = ({
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                 Claiming...
               </div>
+            ) : hasPendingClaim ? (
+              'Pending Approval'
             ) : hasClaimed ? (
               'Already Claimed'
             ) : meal.quantityAvailable <= 0 ? (
