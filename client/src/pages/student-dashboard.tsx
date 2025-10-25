@@ -87,21 +87,16 @@ export default function StudentDashboard() {
     onSuccess: (newClaim) => {
       // Close the form modal
       setClaimFormModalOpen(false);
-      
+
       toast({
-        title: "Meal Claimed Successfully!",
-        description: "Your claim code is ready. Show it to canteen staff to collect your meal.",
+        title: "Meal Claim Submitted!",
+        description: "Your claim is pending approval. You'll be notified once approved.",
       });
-      
-      // Find the food item details
-      const foodItem = foodItems.find(item => item.id === newClaim.foodItemId);
-      setClaimedMeal({ ...newClaim, foodItem });
-      setClaimCodeModalOpen(true);
-      
+
       // Invalidate and refetch data
       queryClient.invalidateQueries({ queryKey: ["/api/food-items"] });
       queryClient.invalidateQueries({ queryKey: ["/api/food-claims/my"] });
-      
+
       // Clear pending data
       setPendingClaimData(null);
       setSelectedMeal(null);
