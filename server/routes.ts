@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import { sendClaimRequestEmail, sendClaimApprovedEmail, sendClaimRejectedEmail, generateClaimCode } from './email.service';
+import { FoodClaim, User } from './models';
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import multer from 'multer';
@@ -386,6 +387,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Failed to fetch food items",
         error: error?.message || 'Unknown error'
       });
+    }
+  });
+
+  // Get approved claims for a specific food item (for QR code generation)
+  app.get('/api/food-items/:id/approved-claims', async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      console.log('🔍 Fetching approved claims for food item ID:', id);
+      console.log('📝 ID type:', typeof id);
+      
+      let userId = null;
+      if (req.session?.user) {
+        userId = getUserIdFromSession(req);
+      }
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ message: "Only admin can view approved claims" });
+      }
+
+      // Get food item to verify it belongs to the admin
+      const foodItem = await storage.getFoodItemById(id);
+      if (!foodItem) {
+        return res.status(404).json({ message: "Food item not found" });
+      }
+
+      console.log('✅ Food item found:', foodItem.name);
+      console.log('📝 Food item _id:', (foodItem as any)._id);
+
+      if (foodItem.createdBy !== userId) {
+        return res.status(403).json({ message: "You can only view claims for your own food items" });
+      }
+
+      // Get ALL reserved claims first for debugging
+      const allReservedClaims = await FoodClaim.find({ status: 'reserved' })
+        .populate('userId', 'firstName lastName email walletAddress profileImageUrl')
+        .lean();
+      
+      console.log('📊 Total reserved claims in database:', allReservedClaims.length);
+      
+      // Check different ID formats
+      const foodItemObjectId = (foodItem as any)._id?.toString();
+      const foodItemId = id;
+      
+      console.log('� Searching for foodItemId:', foodItemId);
+      console.log('🔍 Food item _id (as string):', foodItemObjectId);
+      
+      // Filter claims manually to handle any ID format issues
+      const approvedClaims = allReservedClaims.filter((claim: any) => {
+        const claimFoodItemId = claim.foodItemId?.toString();
+        const matches = claimFoodItemId === foodItemId || claimFoodItemId === foodItemObjectId;
+        
+        if (matches) {
+          console.log('✅ Found matching claim:', claim.claimCode);
+        }
+        
+        return matches;
+      });
+
+      console.log(`📋 Found ${approvedClaims.length} approved claims for food item ${id}`);
+
+      if (approvedClaims.length > 0) {
+        console.log('✅ Sample claim claimCode:', approvedClaims[0].claimCode);
+        console.log('✅ Sample claim foodItemId:', approvedClaims[0].foodItemId);
+      } else {
+        // Show what foodItemIds exist in reserved claims
+        const existingFoodItemIds = allReservedClaims.map((c: any) => c.foodItemId?.toString()).filter(Boolean);
+        console.log('📋 Existing foodItemIds in reserved claims:', [...new Set(existingFoodItemIds)]);
+      }
+
+      // Transform the data to include user details
+      const claimsWithUser = approvedClaims.map((claim: any) => {
+        const transformedClaim = {
+          ...claim,
+          user: claim.userId,
+          id: claim._id.toString(),
+          claimCode: claim.claimCode,
+        };
+        return transformedClaim;
+      });
+
+      res.json(claimsWithUser);
+    } catch (error) {
+      console.error("❌ Error fetching approved claims:", error);
+      res.status(500).json({ message: "Failed to fetch approved claims" });
     }
   });
 
@@ -905,6 +996,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user's claims:", error);
       res.status(500).json({ message: "Failed to fetch claims" });
+    }
+  });
+
+  // Get ALL approved claims for admin (for verification)
+  app.get('/api/food-claims/approved', async (req: any, res) => {
+    try {
+      let userId = null;
+      
+      if (req.session?.user) {
+        userId = getUserIdFromSession(req);
+      }
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ message: "Only admin can view approved claims" });
+      }
+
+      console.log('🔍 Fetching ALL approved claims for admin:', userId);
+
+      // Fetch all claims with status 'reserved' (approved claims)
+      const approvedClaims = await FoodClaim.find({ 
+        status: 'reserved' 
+      })
+        .populate('userId', 'firstName lastName email walletAddress profileImageUrl')
+        .populate('foodItemId')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      console.log(`📋 Found ${approvedClaims.length} total approved claims`);
+
+      if (approvedClaims.length > 0) {
+        console.log('✅ Sample claim codes:', approvedClaims.slice(0, 3).map((c: any) => c.claimCode));
+      }
+
+      // Transform the data
+      const claimsWithUser = approvedClaims.map((claim: any) => ({
+        ...claim,
+        user: claim.userId,
+        foodItem: claim.foodItemId,
+        id: claim._id.toString(),
+        claimCode: claim.claimCode,
+      }));
+
+      res.json(claimsWithUser);
+    } catch (error) {
+      console.error("❌ Error fetching approved claims:", error);
+      res.status(500).json({ message: "Failed to fetch approved claims" });
     }
   });
 

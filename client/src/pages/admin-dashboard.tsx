@@ -59,7 +59,7 @@ interface PendingClaim {
     imageUrl?: string;
   };
 }
-import { Plus, Utensils, TrendingUp, DollarSign, Edit, Trash2, MoreHorizontal, ShieldCheck, Heart, Users, Phone, Clock, AlertTriangle, Leaf, Droplets, Recycle, CheckSquare, Package, Calendar, Coins } from "lucide-react";
+import { Plus, Utensils, TrendingUp, DollarSign, Edit, Trash2, MoreHorizontal, ShieldCheck, Heart, Users, Phone, Clock, AlertTriangle, Leaf, Droplets, Recycle, CheckSquare, Package, Calendar, Coins, QrCode, Camera } from "lucide-react";
 import { EventCalendar } from "@/components/calendar/event-calendar";
 import { formatTimeRemaining } from "@/lib/qr-utils";
 import { z } from "zod";
@@ -69,6 +69,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import QRCode from "qrcode";
+import { useEffect, useRef } from "react";
 
 const formSchema = insertFoodItemSchema.omit({ createdBy: true }).extend({
   availableUntil: z.string().min(1, "Available until time is required"),
@@ -95,6 +97,10 @@ export default function AdminDashboard() {
   });
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<FoodItemWithId | null>(null);
+  const [qrCodeDataURL, setQrCodeDataURL] = useState<string>("");
+  const [scannedCode, setScannedCode] = useState("");
+  const [isScanning, setIsScanning] = useState(false);
+  const [selectedClaimForReward, setSelectedClaimForReward] = useState<any>(null);
 
   // Redirect if not admin or pending approval
   if (!authLoading && (!user || (user.role !== "admin" && user.role !== null))) {
@@ -145,6 +151,8 @@ export default function AdminDashboard() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/food-claims/pending"] });
       queryClient.invalidateQueries({ queryKey: ["/api/food-items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/food-claims/approved"] });
+      refetchApprovedClaims(); // Force refetch of approved claims
     },
     onError: (error) => {
       toast({
@@ -530,8 +538,122 @@ export default function AdminDashboard() {
   };
 
   const handleViewDetails = (item: FoodItemWithId) => {
+    console.log('🔍 ========== OPENING VIEW DETAILS ==========');
+    console.log('📝 Item object:', item);
+    console.log('📝 Item.id:', item.id);
+    console.log('📝 Item._id:', (item as any)._id);
+    console.log('📝 Item name:', item.name);
+    console.log('=======================================');
     setSelectedItem(item);
     setDetailsModalOpen(true);
+    setQrCodeDataURL(""); // Reset QR code
+    setScannedCode(""); // Reset scanned code
+    setSelectedClaimForReward(null); // Reset selected claim
+  };
+
+  // Fetch ALL approved claims for the admin (not just for specific food item)
+  // This allows verifying any student's code from any food item
+  const { data: allApprovedClaims = [], refetch: refetchApprovedClaims } = useQuery<any[]>({
+    queryKey: ['/api/food-claims/approved'],
+    enabled: !!user && user.role === "admin",
+    refetchInterval: 5000, // Refetch every 5 seconds
+    refetchOnWindowFocus: true,
+  });
+
+  // Log when approved claims change
+  useEffect(() => {
+    if (allApprovedClaims) {
+      console.log('📋 ALL Approved claims received:', allApprovedClaims);
+      console.log('📊 Total approved claims:', allApprovedClaims.length);
+      if (allApprovedClaims.length > 0) {
+        console.log('✅ Available claim codes:', allApprovedClaims.map(c => c.claimCode));
+      }
+    }
+  }, [allApprovedClaims]);
+
+  // Generate QR code when approved claims are loaded
+  useEffect(() => {
+    if (allApprovedClaims.length > 0 && detailsModalOpen && selectedItem) {
+      // Find claims for the selected food item
+      const itemClaims = allApprovedClaims.filter(claim => {
+        const claimFoodId = claim.foodItemId?.toString();
+        const selectedItemId = (selectedItem as any)._id?.toString() || selectedItem.id;
+        return claimFoodId === selectedItemId;
+      });
+
+      if (itemClaims.length > 0) {
+        const latestClaim = itemClaims[0];
+        if (latestClaim.claimCode) {
+          // Generate QR code from claim code
+          QRCode.toDataURL(latestClaim.claimCode, {
+            width: 300,
+            margin: 2,
+            color: {
+              dark: '#000000',
+              light: '#FFFFFF',
+            },
+          })
+            .then((url: string) => {
+              setQrCodeDataURL(url);
+            })
+            .catch((err: Error) => {
+              console.error('Error generating QR code:', err);
+            });
+        }
+      }
+    }
+  }, [allApprovedClaims, detailsModalOpen, selectedItem]);
+
+  // Handle code verification from QR scan
+  const handleVerifyCode = () => {
+    if (!scannedCode.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a claim code",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const normalizedCode = scannedCode.trim().toUpperCase();
+    
+    console.log('🔍 Verifying code:', normalizedCode);
+    console.log('📋 Checking against all approved claims:', allApprovedClaims.length);
+    
+    if (!allApprovedClaims || allApprovedClaims.length === 0) {
+      toast({
+        title: "No Approved Claims",
+        description: "There are no approved claims yet. Please approve a student's request first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Find matching claim from ALL approved claims
+    const matchingClaim = allApprovedClaims.find((claim) => {
+      const claimCodeNormalized = claim.claimCode?.toUpperCase();
+      console.log('Comparing:', claimCodeNormalized, 'with', normalizedCode);
+      return claimCodeNormalized === normalizedCode;
+    });
+
+    console.log('Match result:', matchingClaim);
+
+    if (matchingClaim) {
+      setSelectedClaimForReward(matchingClaim);
+      toast({
+        title: "Code Verified! ✅",
+        description: `Claim code matched for ${matchingClaim.user?.firstName || 'student'}!`,
+      });
+    } else {
+      // Show available codes for debugging
+      const availableCodes = allApprovedClaims.map(c => c.claimCode).join(', ');
+      console.error('No match found. Available codes:', availableCodes);
+      toast({
+        title: "Invalid Code",
+        description: `The code "${normalizedCode}" doesn't match any approved claims.`,
+        variant: "destructive",
+      });
+    }
   };
 
   // Fetch comprehensive stats
@@ -1678,12 +1800,19 @@ export default function AdminDashboard() {
       </Dialog>
 
       {/* Details Modal */}
-      <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
+      <Dialog open={detailsModalOpen} onOpenChange={(open) => {
+        setDetailsModalOpen(open);
+        if (!open) {
+          setQrCodeDataURL("");
+          setScannedCode("");
+          setSelectedClaimForReward(null);
+        }
+      }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-gray-900 border-gray-800">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Utensils className="w-5 h-5" />
-              Food Item Details
+              Food Item Details & Claim Verification
             </DialogTitle>
           </DialogHeader>
           {selectedItem && (
@@ -1733,41 +1862,152 @@ export default function AdminDashboard() {
                   </div>
 
                   <div>
-                    <Label className="text-sm font-medium text-blue-500">Contact Information</Label>
-                    <div className="space-y-2 mt-2">
-                      <div className="flex items-center gap-2">
-                        <Phone className="w-4 h-4 text-gray-500" />
-                        <span className="text-gray-600 dark:text-gray-400">+1 (555) 123-4567</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-gray-500" />
-                        <span className="text-gray-600 dark:text-gray-400">Canteen Manager: John Doe</span>
-                      </div>
-                    </div>
+                    <Label className="text-sm font-medium text-blue-500">Approved Claims</Label>
+                    <p className="text-gray-900 dark:text-white">
+                      {(() => {
+                        if (!selectedItem) return '0 claims approved';
+                        const itemClaims = allApprovedClaims.filter(claim => {
+                          const claimFoodId = claim.foodItemId?.toString();
+                          const selectedItemId = (selectedItem as any)._id?.toString() || selectedItem.id;
+                          return claimFoodId === selectedItemId;
+                        });
+                        return `${itemClaims.length} claim${itemClaims.length !== 1 ? 's' : ''} approved for this item`;
+                      })()}
+                    </p>
                   </div>
                 </div>
               </div>
 
-              {/* Right side - QR Code */}
-              <div className="flex flex-col items-center justify-center space-y-4">
-                <div className="text-center">
-                  <Label className="text-sm font-medium text-blue-500">QR Code for Students</Label>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Students can scan this code to claim the food item
+              {/* Right side - QR Code & Verification */}
+              <div className="flex flex-col space-y-4">
+                {/* Code Verification Section - Now Primary */}
+                <div className="border-2 border-blue-500 rounded-lg p-4 bg-blue-50 dark:bg-blue-900/10">
+                  <Label className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-3 flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5" />
+                    Verify Student's Claim Code
+                  </Label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">
+                    Enter the claim code that the student received via email to verify their meal claim
                   </p>
+                  
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Enter claim code (e.g., ABC-XYZ)"
+                        value={scannedCode}
+                        onChange={(e) => setScannedCode(e.target.value.toUpperCase())}
+                        className="flex-1 font-mono text-lg"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleVerifyCode();
+                          }
+                        }}
+                      />
+                      <Button 
+                        onClick={handleVerifyCode}
+                        className="bg-blue-600 hover:bg-blue-700 px-6"
+                        disabled={!scannedCode.trim()}
+                      >
+                        Verify
+                      </Button>
+                    </div>
+
+                    {/* Show available claims info */}
+                    {allApprovedClaims.length > 0 && (
+                      <div className="bg-gray-100 dark:bg-gray-800 rounded p-3 text-xs">
+                        <p className="text-gray-600 dark:text-gray-400">
+                          <strong>{allApprovedClaims.length}</strong> total approved claim{allApprovedClaims.length !== 1 ? 's' : ''} in system
+                        </p>
+                        <p className="text-gray-500 dark:text-gray-500 mt-1">
+                          You can verify any approved claim code here
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedClaimForReward && (
+                      <div className="bg-green-50 dark:bg-green-900/20 border-2 border-green-600 rounded-lg p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                          <CheckCircle className="w-5 h-5" />
+                          <span className="font-semibold">Code Verified Successfully!</span>
+                        </div>
+                        <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
+                          <p><strong>Student:</strong> {selectedClaimForReward.user?.firstName || 'N/A'} {selectedClaimForReward.user?.lastName || ''}</p>
+                          <p><strong>Email:</strong> {selectedClaimForReward.user?.email || 'N/A'}</p>
+                          <p><strong>Claim Code:</strong> <span className="font-mono text-green-600 dark:text-green-400">{selectedClaimForReward.claimCode}</span></p>
+                          <p><strong>Quantity:</strong> {selectedClaimForReward.quantityClaimed}</p>
+                        </div>
+                        <Button 
+                          className="w-full bg-green-600 hover:bg-green-700 text-white mt-2"
+                          onClick={() => {
+                            toast({
+                              title: "Reward Distribution",
+                              description: "This will trigger the blockchain reward distribution. Feature coming soon!",
+                            });
+                          }}
+                        >
+                          <Coins className="w-4 h-4 mr-2" />
+                          Distribute Rewards
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="bg-white p-4 rounded-lg shadow-lg">
-                  <img 
-                    src="https://conceptual-aquamarine-dnqstypoxj.edgeone.app/qrcode_266698670_ed9253c81566e7ff70dcd05f36a47480.png" 
-                    alt="QR Code for food item"
-                    className="w-48 h-48 object-contain"
-                  />
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Scan to claim: {selectedItem.name}
-                  </p>
-                </div>
+
+                {/* QR Code Display - Now Secondary */}
+                {qrCodeDataURL && selectedItem && (
+                  <div className="border border-gray-700 rounded-lg p-4">
+                    <div className="flex flex-col items-center space-y-3">
+                      <div className="text-center">
+                        <Label className="text-sm font-medium text-gray-400 flex items-center justify-center gap-2">
+                          <QrCode className="w-4 h-4" />
+                          Reference QR Code (Latest for this item)
+                        </Label>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Most recent approved claim for {selectedItem.name}
+                        </p>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg shadow-lg">
+                        <img 
+                          src={qrCodeDataURL} 
+                          alt="QR Code for claim verification"
+                          className="w-40 h-40 object-contain"
+                        />
+                      </div>
+                      {(() => {
+                        const itemClaims = allApprovedClaims.filter(claim => {
+                          const claimFoodId = claim.foodItemId?.toString();
+                          const selectedItemId = (selectedItem as any)._id?.toString() || selectedItem.id;
+                          return claimFoodId === selectedItemId;
+                        });
+                        const latestClaim = itemClaims[0];
+                        
+                        return latestClaim ? (
+                          <div className="text-center bg-gray-800 p-3 rounded-lg w-full">
+                            <p className="text-xs text-gray-400 mb-1">Latest Claim Code:</p>
+                            <p className="text-base font-mono font-bold text-green-400">
+                              {latestClaim.claimCode}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              Student: {latestClaim.user?.firstName || 'Unknown'} {latestClaim.user?.lastName || ''}
+                            </p>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {!allApprovedClaims.length && (
+                  <div className="flex flex-col items-center justify-center py-8 text-center border border-gray-700 rounded-lg">
+                    <AlertTriangle className="w-16 h-16 text-yellow-600 mb-3" />
+                    <p className="text-gray-500 dark:text-gray-400 text-sm font-semibold">
+                      No approved claims yet
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-500 text-xs mt-2">
+                      Approve a student's claim request first to verify their code
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
