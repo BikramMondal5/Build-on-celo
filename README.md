@@ -1,3 +1,5 @@
+# The Main code present in the `Block-chain-done` branch
+
 # RePlate Campus - Food Waste Reduction Platform
 
 RePlate Campus is a comprehensive web3-enabled platform designed to reduce food waste on university campuses by connecting students with discounted surplus food items from campus canteens. The platform features blockchain-based authentication, real-time food listings, secure claim code system, and smart contract rewards on the Celo blockchain.
