@@ -32,30 +32,35 @@ export default function StudentDashboard() {
 
   // Try to refetch auth data if not authenticated and not loading
   React.useEffect(() => {
-    console.log('StudentDashboard - Auth state:', { authLoading, user });
-    
-    if (!authLoading && !user) {
-      console.log('StudentDashboard - No user found, trying to refetch...');
-      // Try to refetch authentication data
-      refetch();
-      
-      // If still not authenticated after a delay, redirect to login
-      const timer = setTimeout(() => {
-        console.log('StudentDashboard - Still no user after delay, redirecting to login');
-        window.location.href = "/login";
-      }, 2000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [authLoading, user, refetch]);
+    console.log('StudentDashboard - Auth state:', { authLoading, user, address: (window as any).ethereum?.selectedAddress });
+  }, [authLoading, user]);
 
-  // Show loading while checking authentication
-  if (authLoading || !user) {
+  // Show loading while checking authentication or wallet connection
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-forest mx-auto mb-4"></div>
           <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Only redirect if definitely not authenticated
+  if (!user && !authLoading) {
+    // Small delay to ensure wallet connection state is settled
+    setTimeout(() => {
+      if (!user) {
+        window.location.href = "/login";
+      }
+    }, 1000);
+    
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-forest mx-auto mb-4"></div>
+          <p className="text-gray-600">Authenticating...</p>
         </div>
       </div>
     );
@@ -76,7 +81,6 @@ export default function StudentDashboard() {
       const response = await apiRequest("POST", "/api/food-claims", {
         foodItemId: data.foodItemId,
         quantityClaimed: data.formData.numberOfItems,
-        // You can store additional form data here if your backend supports it
         metadata: {
           name: data.formData.name,
           email: data.formData.email,
@@ -91,8 +95,8 @@ export default function StudentDashboard() {
       setClaimFormModalOpen(false);
 
       toast({
-        title: "Meal Claim Submitted!",
-        description: "Your claim is pending approval. You'll be notified once approved.",
+        title: "Meal Claim Submitted! 📝",
+        description: "Your claim is pending admin approval. You'll be notified via email and in-app when it's approved.",
       });
 
       // Invalidate and refetch data
@@ -118,7 +122,7 @@ export default function StudentDashboard() {
       
       let description = error.message || "Something went wrong. Please try again.";
       if (error.message?.includes("already claimed")) {
-        description = "You have already claimed this food item. You can only claim each item once.";
+        description = "You have already submitted a claim for this food item.";
       }
       
       toast({
@@ -132,10 +136,8 @@ export default function StudentDashboard() {
   const handleClaimMeal = (foodItemId: string) => {
     if (claimMutation.isPending) return;
     console.log('Frontend: Claiming meal with ID:', foodItemId);
-    console.log('Frontend: ID type:', typeof foodItemId);
-    console.log('Frontend: ID length:', foodItemId?.length);
     setSelectedMeal(foodItemId);
-    // Open the claim form modal instead of directly claiming
+    // Open the claim form modal
     setClaimFormModalOpen(true);
   };
 
@@ -160,8 +162,23 @@ export default function StudentDashboard() {
       return false;
     }
     
-    // Only show items with available quantity (already calculated by backend)
+    // Only show items with available quantity
     if (item.quantityAvailable <= 0) {
+      return false;
+    }
+    
+    // Exclude items that user has already claimed (including expired claims) - NEW
+    const hasAnyClaim = myClaims.some(claim => {
+      const claimFoodId = typeof claim.foodItemId === 'object' 
+        ? (claim.foodItemId as any).id || (claim.foodItemId as any)._id 
+        : claim.foodItemId;
+      const mealIdToCompare = (item as any).id || (item as any)._id || item.id;
+      return (claimFoodId === mealIdToCompare || claimFoodId === item.id) &&
+        (claim.status === 'pending' || claim.status === 'reserved' || 
+        claim.status === 'claimed' || claim.status === 'expired');
+    });
+    
+    if (hasAnyClaim) {
       return false;
     }
     
@@ -170,17 +187,6 @@ export default function StudentDashboard() {
 
   // Get unique canteens for filter (filter out null/undefined values)
   const canteens = Array.from(new Set(foodItems.map(item => item.canteenName).filter(Boolean)));
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-forest mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-surface dark:bg-gray-900">
@@ -253,9 +259,6 @@ export default function StudentDashboard() {
                     onClaim={handleClaimMeal}
                     isLoading={claimMutation.isPending && selectedMeal === meal.id}
                     userClaims={myClaims}
-                    isPendingApproval={myClaims.some(
-                      claim => claim.foodItemId === meal.id && claim.status === "pending"
-                    )}
                   />
                 ))}
               </div>
@@ -299,93 +302,136 @@ export default function StudentDashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {myClaims.filter(claim => claim.foodItem).map((claim) => (
-                  <Card key={claim.id}>
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-                            {claim.status === "claimed" ? (
-                              <CheckCircle className="w-8 h-8 text-green-600" />
-                            ) : claim.status === "expired" ? (
-                              <X className="w-8 h-8 text-red-600" />
-                            ) : claim.status === "rejected" ? (
-                              <XCircle className="w-8 h-8 text-red-600" />
-                            ) : claim.status === "pending" ? (
-                              <Clock className="w-8 h-8 text-yellow-600" />
-                            ) : (
-                              <QrCode className="w-8 h-8 text-forest" />
+                {/* Show pending claims first */}
+                {myClaims.filter(claim => claim.status === 'pending').length > 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-yellow-600" />
+                      Pending Approval ({myClaims.filter(claim => claim.status === 'pending').length})
+                    </h3>
+                    <div className="space-y-3">
+                      {myClaims.filter(claim => claim.status === 'pending' && claim.foodItem).map((claim) => (
+                        <Card key={claim.id} className="border-yellow-200 dark:border-yellow-800">
+                          <CardContent className="p-6">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <div className="w-16 h-16 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg flex items-center justify-center">
+                                  <Clock className="w-8 h-8 text-yellow-600" />
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-gray-900 dark:text-white">
+                                    {claim.foodItem.name}
+                                  </h3>
+                                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    {claim.foodItem.canteenName}
+                                  </p>
+                                  <p className="text-sm text-gray-500 dark:text-gray-500">
+                                    Requested on {new Date(claim.createdAt || '').toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <Badge variant="secondary" className="mb-2 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200">
+                                  Pending Approval
+                                </Badge>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                  Waiting for admin approval
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Show other claims */}
+                {myClaims.filter(claim => claim.status !== 'pending').length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+                      All Claims
+                    </h3>
+                    <div className="space-y-3">
+                      {myClaims.filter(claim => claim.status !== 'pending' && claim.foodItem).map((claim) => (
+                        <Card key={claim.id}>
+                          <CardContent className="p-6">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
+                                  {claim.status === "claimed" ? (
+                                    <CheckCircle className="w-8 h-8 text-green-600" />
+                                  ) : claim.status === "expired" ? (
+                                    <X className="w-8 h-8 text-red-600" />
+                                  ) : claim.status === "rejected" ? (
+                                    <XCircle className="w-8 h-8 text-red-600" />
+                                  ) : (
+                                    <QrCode className="w-8 h-8 text-forest" />
+                                  )}
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-gray-900 dark:text-white">
+                                    {claim.foodItem.name}
+                                  </h3>
+                                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    {claim.foodItem.canteenName}
+                                  </p>
+                                  <p className="text-sm text-gray-500 dark:text-gray-500">
+                                    Claimed on {new Date(claim.createdAt || '').toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <Badge 
+                                  variant={
+                                    claim.status === "claimed" ? "default" :
+                                    claim.status === "expired" ? "destructive" :
+                                    claim.status === "rejected" ? "destructive" :
+                                    "secondary"
+                                  }
+                                  className="mb-2"
+                                >
+                                  {claim.status === "rejected" ? "Rejected" :
+                                  claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
+                                </Badge>
+                                {claim.status === "reserved" && (
+                                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    Expires: {formatTimeRemaining(claim.expiresAt.toString())}
+                                  </p>
+                                )}
+                                {claim.status === "claimed" && claim.claimedAt && (
+                                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    Collected: {new Date(claim.claimedAt).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {claim.status === "rejected" && (
+                                  <p className="text-sm text-red-600 dark:text-red-400">
+                                    Request was not approved
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            {claim.status === "reserved" && (
+                              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    sessionStorage.setItem('qr_scan_claim', JSON.stringify(claim));
+                                    navigate('/qr-scanner');
+                                  }}
+                                >
+                                  <QrCode className="w-4 h-4 mr-2" />
+                                  Scan QR Code
+                                </Button>
+                              </div>
                             )}
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-gray-900 dark:text-white">
-                              {claim.foodItem.name}
-                            </h3>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              {claim.foodItem.canteenName}
-                            </p>
-                            <p className="text-sm text-gray-500 dark:text-gray-500">
-                              Claimed on {new Date(claim.createdAt || '').toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <Badge 
-                            variant={
-                              claim.status === "claimed" ? "default" :
-                              claim.status === "expired" ? "destructive" :
-                              claim.status === "rejected" ? "destructive" :
-                              claim.status === "pending" ? "secondary" :
-                              "secondary"
-                            }
-                            className="mb-2"
-                          >
-                            {claim.status === "pending" ? "Pending Approval" : 
-                            claim.status === "rejected" ? "Rejected" :
-                            claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
-                          </Badge>
-                          {claim.status === "pending" && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              Waiting for admin approval
-                            </p>
-                          )}
-                          {claim.status === "reserved" && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              Expires: {formatTimeRemaining(claim.expiresAt.toString())}
-                            </p>
-                          )}
-                          {claim.status === "claimed" && claim.claimedAt && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              Collected: {new Date(claim.claimedAt).toLocaleDateString()}
-                            </p>
-                          )}
-                          {claim.status === "rejected" && (
-                            <p className="text-sm text-red-600 dark:text-red-400">
-                              Request was not approved
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      {claim.status === "reserved" && (
-                        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              // Store claim data in sessionStorage
-                              sessionStorage.setItem('qr_scan_claim', JSON.stringify(claim));
-                              // Navigate to QR scanner page
-                              navigate('/qr-scanner');
-                            }}
-                          >
-                            <QrCode className="w-4 h-4 mr-2" />
-                            Scan Qrcode
-                          </Button>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </TabsContent>

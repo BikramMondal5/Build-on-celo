@@ -51,95 +51,67 @@ const sessionMiddleware: RequestHandler = (req, res, next) => {
     sessionId = Math.random().toString(36).substring(2, 15);
     res.cookie('connect.sid', sessionId, { 
       httpOnly: true, 
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 24 * 60 * 60 * 1000,
       path: '/',
       sameSite: 'lax'
     });
   }
 
-  console.log('Session middleware - Raw cookies:', req.headers.cookie);
-  console.log('Session middleware - Extracted session ID:', sessionId);
-
-  console.log('Session middleware - Session ID:', sessionId);
-  console.log('Session middleware - Existing sessions:', Object.keys(sessions));
+  console.log('🔐 Session ID:', sessionId);
 
   // Initialize session if it doesn't exist
   if (!sessions[sessionId]) {
     sessions[sessionId] = {};
-    console.log('Session middleware - Created new session');
+    console.log('✨ Created new session');
   } else {
-    console.log('Session middleware - Using existing session:', sessions[sessionId]);
+    console.log('♻️ Using existing session:', JSON.stringify(sessions[sessionId]));
   }
 
   // Add session to request
   req.session = sessions[sessionId];
-  
-  // Add session ID property (required by Passport.js)
   req.session.id = sessionId;
   
-  // Add session save method
+  // IMPORTANT: Make save method update the reference
   req.session.save = function(callback: (err?: any) => void) {
-    console.log('Session save called for session ID:', sessionId);
-    sessions[sessionId] = req.session;
-    console.log('Session saved:', sessions[sessionId]);
+    console.log('💾 Saving session:', sessionId);
+    console.log('📦 Session data:', JSON.stringify(req.session));
+    sessions[sessionId] = { ...req.session }; // Create new object to ensure reference update
+    console.log('✅ Session saved successfully');
     callback();
     return this;
   };
   
-  // Add session destroy method
   req.session.destroy = function(callback: (err?: any) => void) {
-    console.log('Session destroy called for session ID:', sessionId);
     delete sessions[sessionId];
     res.clearCookie('connect.sid', { path: '/' });
     callback();
     return this;
   };
   
-  // Add session regenerate method (required by Passport.js)
   req.session.regenerate = function(callback: (err?: any) => void) {
-    console.log('Session regenerate called for session ID:', sessionId);
     const oldSession = { ...req.session };
     delete sessions[sessionId];
-    
-    // Generate new session ID
     const newSessionId = Math.random().toString(36).substring(2, 15);
     sessions[newSessionId] = oldSession;
-    
-    // Update cookie
     res.cookie('connect.sid', newSessionId, { 
       httpOnly: true, 
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000,
+      path: '/',
+      sameSite: 'lax'
     });
-    
-    // Update request session
     req.session = sessions[newSessionId];
-    console.log('Session regenerated with new ID:', newSessionId);
     callback();
     return this;
   };
   
-  // Add session reload method
   req.session.reload = function(callback: (err?: any) => void) {
-    console.log('Session reload called for session ID:', sessionId);
-    // For in-memory sessions, reload is just a no-op
     callback();
     return this;
   };
   
-  // Add session touch method
   req.session.touch = function() {
-    console.log('Session touch called for session ID:', sessionId);
-    // Update session timestamp if needed
     return this;
   };
-  
-  // Clean up old sessions (optional)
-  const oneDay = 24 * 60 * 60 * 1000;
-  Object.keys(sessions).forEach(id => {
-    if (Date.now() - parseInt(id, 36) > oneDay) {
-      delete sessions[id];
-    }
-  });
 
   next();
 };

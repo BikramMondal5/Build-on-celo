@@ -208,36 +208,80 @@ export class DatabaseStorage implements IStorage {
 
   // Food item operations
   async getAllActiveFoodItems(): Promise<FoodItemWithCreator[]> {
-    await this.updateExpiredItemsStatus();
-    const now = new Date().toISOString();
-    
-    const items = await FoodItem.find({
-      $or: [
-        { isActive: true },
-        { isActive: { $exists: false } } // Include items where isActive field doesn't exist
-      ],
-      availableUntil: { $gte: now }
-    })
-    .populate('createdBy')
-    .sort({ createdAt: -1 });
-    
-    const itemsWithCounts = await Promise.all(
-      items.map(async (item: any) => {
-        const claimCount = await FoodClaim.countDocuments({
-          foodItemId: item._id.toString(),
-          status: { $in: ['reserved', 'claimed'] }
-        });
-        console.log('Food item from database:', { 
-          _id: item._id.toString(), 
-          name: item.name, 
-          id: item.id,
-          hasIdField: 'id' in item 
-        });
-        return { ...item.toObject(), claimCount };
+    try {
+      console.log('🍽️ === getAllActiveFoodItems called ===');
+      
+      await this.updateExpiredItemsStatus();
+      const now = new Date().toISOString();
+      
+      const items = await FoodItem.find({
+        $or: [
+          { isActive: true },
+          { isActive: { $exists: false } }
+        ],
+        availableUntil: { $gte: now }
       })
-    );
-    
-    return itemsWithCounts as any as FoodItemWithCreator[];
+      .sort({ createdAt: -1 })
+      .lean();
+      
+      console.log('📦 Found', items.length, 'active items');
+      
+      // Get all unique creator IDs - FIXED: Use Array.from instead of spread
+      const creatorIdsSet = new Set<string>();
+      items.forEach(item => {
+        if (item.createdBy) {
+          creatorIdsSet.add(item.createdBy);
+        }
+      });
+      const creatorIds = Array.from(creatorIdsSet);
+      console.log('👥 Unique creators:', creatorIds);
+      
+      // Fetch all creators at once
+      const creators = await User.find({
+        walletAddress: { $in: creatorIds }
+      }).lean();
+      
+      console.log('✅ Found', creators.length, 'creators');
+      
+      // Create a map for quick lookup
+      const creatorMap = new Map<string, any>();
+      creators.forEach((creator: any) => {
+        creatorMap.set(creator.walletAddress, creator);
+      });
+      
+      const itemsWithCounts = await Promise.all(
+        items.map(async (item: any) => {
+          const itemId = item._id.toString();
+          const claimCount = await FoodClaim.countDocuments({
+            foodItemId: itemId,
+            status: { $in: ['reserved', 'claimed'] }
+          });
+          
+          // Get creator from map or create default
+          const creator = creatorMap.get(item.createdBy) || {
+            walletAddress: item.createdBy,
+            email: '',
+            firstName: 'Unknown',
+            lastName: 'User',
+          };
+          
+          return {
+            ...item,
+            id: itemId,
+            _id: item._id,
+            createdBy: creator,
+            claimCount
+          };
+        })
+      );
+      
+      console.log('✅ Returning', itemsWithCounts.length, 'items with details');
+      return itemsWithCounts as any as FoodItemWithCreator[];
+    } catch (error: any) {  // FIXED: Add type annotation
+      console.error('❌ Error in getAllActiveFoodItems:', error);
+      console.error('Stack:', error?.stack);
+      throw error;
+    }
   }
 
   async getFoodItemById(id: string): Promise<IFoodItem | undefined> {
@@ -267,22 +311,35 @@ export class DatabaseStorage implements IStorage {
   // Get pending food claims with full details
   async getPendingFoodClaims() {
     const claims = await FoodClaim.find({ status: 'pending' })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
     
     // Populate user and food item details
     const claimsWithDetails = await Promise.all(
-      claims.map(async (claim) => {
-        const user = await User.findById(claim.userId);
-        const foodItem = await FoodItem.findById(claim.foodItemId);
+      claims.map(async (claim: any) => {
+        const user = await User.findOne({ walletAddress: claim.userId }).lean();
+        const foodItem = await FoodItem.findById(claim.foodItemId).lean();
         return {
-          ...claim.toObject(),
-          user,
-          foodItem,
+          ...claim,
+          id: claim._id.toString(),
+          user: user ? {
+            walletAddress: user.walletAddress,
+            firstName: user.firstName || '',
+            lastName: user.lastName || '',
+            email: user.email || '',
+            profileImageUrl: user.profileImageUrl || '',
+          } : null,
+          foodItem: foodItem ? {
+            name: foodItem.name,
+            canteenName: foodItem.canteenName,
+            imageUrl: foodItem.imageUrl || '',
+          } : null,
         };
       })
     );
     
-    return claimsWithDetails;
+    // Filter out claims where user or foodItem is null
+    return claimsWithDetails.filter(claim => claim.user && claim.foodItem);
   }
 
   // Get food claim by ID
@@ -350,8 +407,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createFoodItem(foodItem: InsertFoodItem): Promise<IFoodItem> {
-    const item = await FoodItem.create(foodItem);
-    return item.toObject() as any as IFoodItem;
+    try {
+      console.log('🍽️ Creating food item:', {
+        name: foodItem.name,
+        createdBy: foodItem.createdBy
+      });
+      
+      // Normalize the createdBy wallet address to lowercase
+      const normalizedFoodItem = {
+        ...foodItem,
+        createdBy: foodItem.createdBy?.toLowerCase()
+      };
+      
+      console.log('📝 Normalized createdBy:', normalizedFoodItem.createdBy);
+      
+      const item = await FoodItem.create(normalizedFoodItem);
+      console.log('✅ Food item created:', item._id.toString());
+      
+      const result = item.toObject() as any as IFoodItem;
+      return result;
+    } catch (error) {
+      console.error('❌ Error creating food item:', error);
+      throw error;
+    }
   }
 
   async updateFoodItem(id: string, updates: Partial<InsertFoodItem>): Promise<IFoodItem> {
@@ -370,23 +448,71 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFoodItemsByCreator(creatorId: string): Promise<FoodItemWithCreator[]> {
-    await this.updateExpiredItemsStatus();
+    try {
+      console.log('🔍 === getFoodItemsByCreator called ===');
+      console.log('📝 Creator ID:', creatorId);
+      
+      await this.updateExpiredItemsStatus();
 
-    const items = await FoodItem.find({ createdBy: creatorId })
-      .populate('createdBy')
-      .sort({ createdAt: -1 });
+      const normalizedCreatorId = creatorId.toLowerCase();
+      console.log('🔄 Normalized creator ID:', normalizedCreatorId);
 
-    const itemsWithCounts = await Promise.all(
-      items.map(async (item: any) => {
-        const claimCount = await FoodClaim.countDocuments({
-          foodItemId: item._id.toString(),
-          status: { $in: ['reserved', 'claimed'] }
-        });
-        return { ...item.toObject(), claimCount };
+      const items = await FoodItem.find({ 
+        createdBy: normalizedCreatorId 
       })
-    );
+      .sort({ createdAt: -1 })
+      .lean();
+      
+      console.log('📦 Found', items.length, 'items for creator');
+      
+      if (items.length > 0) {
+        console.log('📝 First item:', {
+          id: items[0]._id?.toString(),
+          name: items[0].name,
+          createdBy: items[0].createdBy
+        });
+      }
 
-    return itemsWithCounts as any as FoodItemWithCreator[];
+      const creator = await User.findOne({ 
+        walletAddress: normalizedCreatorId 
+      }).lean();
+      
+      if (!creator) {
+        console.warn('⚠️ Creator not found:', normalizedCreatorId);
+      } else {
+        console.log('✅ Creator found:', creator.walletAddress);
+      }
+
+      const itemsWithCounts = await Promise.all(
+        items.map(async (item: any) => {
+          const itemId = item._id.toString();
+          const claimCount = await FoodClaim.countDocuments({
+            foodItemId: itemId,
+            status: { $in: ['reserved', 'claimed'] }
+          });
+          
+          return {
+            ...item,
+            id: itemId,
+            _id: item._id,
+            createdBy: creator || {
+              walletAddress: normalizedCreatorId,
+              email: '',
+              firstName: 'Unknown',
+              lastName: 'User',
+            },
+            claimCount
+          };
+        })
+      );
+      
+      console.log('✅ Returning', itemsWithCounts.length, 'items with counts');
+      return itemsWithCounts as any as FoodItemWithCreator[];
+    } catch (error: any) {  // FIXED: Add type annotation
+      console.error('❌ Error in getFoodItemsByCreator:', error);
+      console.error('Stack:', error?.stack);
+      throw error;
+    }
   }
 
   // Food claim operations
@@ -397,22 +523,29 @@ export class DatabaseStorage implements IStorage {
 
   async getFoodClaimsByUser(userId: string): Promise<FoodClaimWithDetails[]> {
     const claims = await FoodClaim.find({ userId })
-      .populate('userId')
-      .populate('foodItemId')
       .sort({ createdAt: -1 })
       .lean();
     
-    return claims.map((claim: any) => {
-      // Store the original foodItemId string before it gets replaced by population
-      const foodItemIdString = claim.foodItemId?._id?.toString() || claim.foodItemId;
-      
-      return {
-        ...claim,
-        foodItemId: foodItemIdString, // Keep as string for comparisons
-        user: claim.userId,
-        foodItem: claim.foodItemId
-      };
-    }) as any as FoodClaimWithDetails[];
+    // Fetch user and food item details separately
+    const claimsWithDetails = await Promise.all(
+      claims.map(async (claim: any) => {
+        const user = await User.findOne({ walletAddress: claim.userId }).lean();
+        const foodItem = await FoodItem.findById(claim.foodItemId).lean();
+        
+        return {
+          ...claim,
+          id: claim._id.toString(),
+          foodItemId: claim.foodItemId.toString(), // Keep as string
+          user: user || null,
+          foodItem: foodItem ? {
+            ...foodItem,
+            id: foodItem._id.toString()
+          } : null
+        };
+      })
+    );
+    
+    return claimsWithDetails.filter(c => c.user && c.foodItem) as any as FoodClaimWithDetails[];
   }
 
   async getFoodClaimByClaimCode(claimCode: string): Promise<FoodClaimWithDetails | undefined> {
@@ -519,7 +652,7 @@ export class DatabaseStorage implements IStorage {
       {
         $or: [
           { isActive: true },
-          { isActive: { $exists: false } } // Include items where isActive field doesn't exist
+          { isActive: { $exists: false } }
         ],
         availableUntil: { $lt: now }
       },
