@@ -49,16 +49,11 @@ const CELO_ABI = [
   'function decimals() view returns (uint8)'
 ];
 
-// Celo Alfajores Testnet addresses - Multiple RPC endpoints for reliability
+// Celo Alfajores Testnet addresses
 export const CELO_TESTNET_CONFIG = {
   chainId: 44787,
   chainName: 'Celo Alfajores Testnet',
   rpcUrl: 'https://alfajores-forno.celo-testnet.org',
-  rpcUrls: [
-    'https://alfajores-forno.celo-testnet.org',
-    'https://celo-alfajores.infura.io/v3/YOUR_INFURA_KEY', // Fallback option
-    'https://celo-alfajores-rpc.allthatnode.com', // Public fallback
-  ],
   blockExplorer: 'https://alfajores.celoscan.io',
   nativeCurrency: {
     name: 'CELO',
@@ -120,7 +115,7 @@ export class RewardsService {
         throw new Error('Please install MetaMask or another Web3 wallet');
       }
 
-      // Create provider with retry logic
+      // Create provider
       this.provider = new BrowserProvider(window.ethereum);
       
       // Request account access
@@ -129,22 +124,9 @@ export class RewardsService {
       // Get signer
       this.signer = await this.provider.getSigner();
       
-      // Check if on Celo Alfajores with retry
-      let network;
-      let retries = 3;
-      while (retries > 0) {
-        try {
-          network = await this.provider.getNetwork();
-          break;
-        } catch (error: any) {
-          retries--;
-          if (retries === 0) throw error;
-          console.log(`Network check failed, retrying... (${retries} attempts left)`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-      
-      if (network && Number(network.chainId) !== CELO_TESTNET_CONFIG.chainId) {
+      // Check if on Celo Alfajores
+      const network = await this.provider.getNetwork();
+      if (Number(network.chainId) !== CELO_TESTNET_CONFIG.chainId) {
         await this.switchToCeloTestnet();
       }
       
@@ -175,17 +157,9 @@ export class RewardsService {
       
       console.log('Rewards service initialized successfully');
       return true;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to initialize rewards service:', error);
-      
-      // Provide user-friendly error messages
-      if (error?.message?.includes('circuit breaker')) {
-        throw new Error('MetaMask is having connection issues. Please wait 60 seconds or reset your MetaMask account (Settings → Advanced → Reset Account).');
-      } else if (error?.code === -32603) {
-        throw new Error('Unable to connect to Celo network. Please refresh the page and try again.');
-      } else {
-        throw error;
-      }
+      throw error;
     }
   }
 
@@ -207,7 +181,7 @@ export class RewardsService {
             chainId: `0x${CELO_TESTNET_CONFIG.chainId.toString(16)}`,
             chainName: CELO_TESTNET_CONFIG.chainName,
             nativeCurrency: CELO_TESTNET_CONFIG.nativeCurrency,
-            rpcUrls: CELO_TESTNET_CONFIG.rpcUrls || [CELO_TESTNET_CONFIG.rpcUrl],
+            rpcUrls: [CELO_TESTNET_CONFIG.rpcUrl],
             blockExplorerUrls: [CELO_TESTNET_CONFIG.blockExplorer]
           }]
         });

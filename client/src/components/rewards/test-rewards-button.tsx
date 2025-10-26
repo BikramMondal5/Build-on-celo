@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Input } from '@/components/ui/input';
 import { 
   Award, 
   Coins, 
@@ -15,9 +14,7 @@ import {
   Loader2,
   ExternalLink,
   TrendingUp,
-  Medal,
-  Copy,
-  Check
+  Medal
 } from 'lucide-react';
 import { rewardsService, CELO_TESTNET_CONFIG, claimFoodReward } from '@/lib/rewardsService';
 import { useAccount } from 'wagmi';
@@ -42,24 +39,12 @@ export function TestRewardsButton({ onSuccess, onError }: TestRewardsProps) {
   const [result, setResult] = useState<RewardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<string>('');
-  const [copied, setCopied] = useState(false);
 
   // Test student address - replace with actual student wallet
   const [testStudentAddress, setTestStudentAddress] = useState('0x1234567890123456789012345678901234567890');
   
   // Admin address will be the connected wallet
   const adminAddress = connectedAddress || '0x0000000000000000000000000000000000000000';
-
-  // Copy transaction hash to clipboard
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
 
   // Initialize the rewards service
   const handleInitialize = async () => {
@@ -125,24 +110,7 @@ export function TestRewardsButton({ onSuccess, onError }: TestRewardsProps) {
 
     } catch (err: any) {
       console.error('Error distributing rewards:', err);
-      
-      let errorMessage = 'Failed to distribute rewards';
-      
-      // Handle specific error types
-      if (err?.message) {
-        if (err.message.includes('circuit breaker')) {
-          errorMessage = '⚠️ MetaMask Connection Issue: Circuit breaker is open. Please wait 60 seconds and try again, or reset your MetaMask account.';
-        } else if (err.message.includes('UNKNOWN_ERROR')) {
-          errorMessage = '⚠️ Network Error: Unable to connect to Celo network. Please refresh the page and try again.';
-        } else if (err.message.includes('user rejected')) {
-          errorMessage = '❌ Transaction cancelled by user.';
-        } else if (err.message.includes('insufficient funds')) {
-          errorMessage = '❌ Insufficient funds in contract. Please fund the contract first.';
-        } else {
-          errorMessage = err.message;
-        }
-      }
-      
+      const errorMessage = err instanceof Error ? err.message : 'Failed to distribute rewards';
       setError(errorMessage);
       onError?.(err instanceof Error ? err : new Error(errorMessage));
       setCurrentStep('');
@@ -188,32 +156,7 @@ export function TestRewardsButton({ onSuccess, onError }: TestRewardsProps) {
         {error && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              <div className="space-y-2">
-                <p className="font-semibold">{error}</p>
-                {error.includes('circuit breaker') && (
-                  <div className="text-xs mt-2 space-y-1 text-muted-foreground">
-                    <p>💡 <strong>Quick fixes:</strong></p>
-                    <ol className="list-decimal ml-5 space-y-1">
-                      <li>Wait 30-60 seconds and try again</li>
-                      <li>Refresh the page (Ctrl+R)</li>
-                      <li>In MetaMask, go to Settings → Advanced → "Reset account" (this clears cache only)</li>
-                      <li>Switch to a different network and back to Celo Alfajores</li>
-                    </ol>
-                  </div>
-                )}
-                {error.includes('UNKNOWN_ERROR') && (
-                  <div className="text-xs mt-2 space-y-1 text-muted-foreground">
-                    <p>💡 <strong>This usually means:</strong></p>
-                    <ul className="list-disc ml-5 space-y-1">
-                      <li>MetaMask is having trouble connecting to Celo network</li>
-                      <li>Try refreshing the page or resetting MetaMask account</li>
-                      <li>Check if Celo Alfajores testnet is online</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </AlertDescription>
+            <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
@@ -391,42 +334,6 @@ export function TestRewardsButton({ onSuccess, onError }: TestRewardsProps) {
                 </CardContent>
               </Card>
             </div>
-
-            {/* Transaction Hash Display with Copy */}
-            {result.transactionHash && (
-              <Card className="bg-slate-50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <CheckCircle className="h-4 w-4 text-green-500" />
-                    Transaction Hash
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex gap-2">
-                    <Input
-                      value={result.transactionHash}
-                      readOnly
-                      className="font-mono text-xs bg-white"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => copyToClipboard(result.transactionHash!)}
-                      className="shrink-0"
-                    >
-                      {copied ? (
-                        <Check className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {copied ? 'Copied to clipboard!' : 'Click the copy button to copy the transaction hash'}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
 
             <Alert>
               <TrendingUp className="h-4 w-4" />
