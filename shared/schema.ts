@@ -160,6 +160,141 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   }),
 }));
 
+// Treasury and Revenue Management Tables
+
+// Subscriptions table
+export const subscriptions = pgTable("subscriptions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  donorAddress: varchar("donor_address").notNull(),
+  planType: varchar("plan_type", { length: 50 }).notNull(), // MONTHLY, YEARLY, CUSTOM
+  startDate: timestamp("start_date").notNull().defaultNow(),
+  expiryDate: timestamp("expiry_date").notNull(),
+  status: varchar("status", { length: 50 }).notNull().default("ACTIVE"), // ACTIVE, EXPIRED, SUSPENDED, CANCELLED
+  price: decimal("price", { precision: 20, scale: 18 }).notNull(), // in cUSD
+  totalPaid: decimal("total_paid", { precision: 20, scale: 18 }).notNull().default("0"),
+  pickupsUsed: integer("pickups_used").notNull().default(0),
+  autoRenew: boolean("auto_renew").notNull().default(false),
+  transactionHash: varchar("transaction_hash"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Pickup fees table
+export const pickupFees = pgTable("pickup_fees", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  pickupId: uuid("pickup_id").notNull(),
+  donorAddress: varchar("donor_address").notNull(),
+  feeAmount: decimal("fee_amount", { precision: 20, scale: 18 }).notNull(),
+  donorTier: varchar("donor_tier", { length: 50 }).notNull().default("STANDARD"), // STANDARD, PREMIUM, ENTERPRISE, CUSTOM
+  estimatedFoodValue: decimal("estimated_food_value", { precision: 20, scale: 18 }),
+  foodWeightKg: decimal("food_weight_kg", { precision: 10, scale: 2 }),
+  wasteDisposalSavings: decimal("waste_disposal_savings", { precision: 20, scale: 18 }),
+  transactionHash: varchar("transaction_hash"),
+  isPaid: boolean("is_paid").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Sponsors table
+export const sponsors = pgTable("sponsors", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  sponsorAddress: varchar("sponsor_address").unique().notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  logoUrl: text("logo_url"),
+  totalContributed: decimal("total_contributed", { precision: 20, scale: 18 }).notNull().default("0"),
+  isActive: boolean("is_active").notNull().default(true),
+  tier: varchar("tier", { length: 50 }).default("SUPPORTER"), // SUPPORTER, PARTNER, FOUNDING
+  website: varchar("website"),
+  contactEmail: varchar("contact_email"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Grants table
+export const grants = pgTable("grants", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  grantName: varchar("grant_name", { length: 255 }).notNull(),
+  grantSource: varchar("grant_source", { length: 255 }).notNull(), // e.g., "Celo Foundation", "Celo Camp"
+  amount: decimal("amount", { precision: 20, scale: 18 }).notNull(),
+  description: text("description"),
+  receivedDate: timestamp("received_date").notNull().defaultNow(),
+  transactionHash: varchar("transaction_hash"),
+  status: varchar("status", { length: 50 }).notNull().default("ACTIVE"), // ACTIVE, COMPLETED, DEPLETED
+  amountDisbursed: decimal("amount_disbursed", { precision: 20, scale: 18 }).notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Sponsorship contributions table
+export const sponsorshipContributions = pgTable("sponsorship_contributions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  sponsorId: uuid("sponsor_id").notNull().references(() => sponsors.id),
+  amount: decimal("amount", { precision: 20, scale: 18 }).notNull(),
+  transactionHash: varchar("transaction_hash"),
+  campaign: varchar("campaign", { length: 255 }), // Optional campaign name
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Treasury transactions table (audit trail)
+export const treasuryTransactions = pgTable("treasury_transactions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  transactionType: varchar("transaction_type", { length: 50 }).notNull(), // DEPOSIT, WITHDRAWAL, REWARD_DISTRIBUTION
+  revenueSource: varchar("revenue_source", { length: 50 }), // SUBSCRIPTION, PER_PICKUP_FEE, GRANT, SPONSORSHIP, PLATFORM_FEE
+  amount: decimal("amount", { precision: 20, scale: 18 }).notNull(),
+  fromAddress: varchar("from_address"),
+  toAddress: varchar("to_address"),
+  relatedId: uuid("related_id"), // Reference to subscription, pickup, grant, etc.
+  transactionHash: varchar("transaction_hash"),
+  metadata: jsonb("metadata"), // Additional data
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// NGO rewards table
+export const ngoRewards = pgTable("ngo_rewards", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  ngoAddress: varchar("ngo_address").notNull(),
+  ngoName: varchar("ngo_name", { length: 255 }),
+  pickupId: uuid("pickup_id").notNull(),
+  rewardAmount: decimal("reward_amount", { precision: 20, scale: 18 }).notNull(),
+  fundingSource: varchar("funding_source", { length: 50 }).notNull(), // Which revenue source funded this
+  transactionHash: varchar("transaction_hash"),
+  status: varchar("status", { length: 50 }).notNull().default("PENDING"), // PENDING, DISTRIBUTED, FAILED
+  distributedAt: timestamp("distributed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// CSR Reports table (for donors)
+export const csrReports = pgTable("csr_reports", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  donorAddress: varchar("donor_address").notNull(),
+  reportPeriodStart: timestamp("report_period_start").notNull(),
+  reportPeriodEnd: timestamp("report_period_end").notNull(),
+  totalPickups: integer("total_pickups").notNull(),
+  totalFoodDonatedKg: decimal("total_food_donated_kg", { precision: 10, scale: 2 }).notNull(),
+  totalMealsProvided: integer("total_meals_provided").notNull(),
+  co2SavedKg: decimal("co2_saved_kg", { precision: 10, scale: 2 }).notNull(),
+  wasteDisposalSavings: decimal("waste_disposal_savings", { precision: 20, scale: 18 }).notNull(),
+  platformFeesPaid: decimal("platform_fees_paid", { precision: 20, scale: 18 }).notNull(),
+  netSavings: decimal("net_savings", { precision: 20, scale: 18 }).notNull(),
+  impactNFTTokenId: varchar("impact_nft_token_id"), // Reference to proof of impact NFT
+  reportUrl: text("report_url"), // PDF/document URL
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Relations for new tables
+export const subscriptionsRelations = relations(subscriptions, ({ many }) => ({
+  treasuryTransactions: many(treasuryTransactions),
+}));
+
+export const sponsorsRelations = relations(sponsors, ({ many }) => ({
+  contributions: many(sponsorshipContributions),
+}));
+
+export const sponsorshipContributionsRelations = relations(sponsorshipContributions, ({ one }) => ({
+  sponsor: one(sponsors, {
+    fields: [sponsorshipContributions.sponsorId],
+    references: [sponsors.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   walletAddress: true,
@@ -211,6 +346,48 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   createdAt: true,
 });
 
+export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertPickupFeeSchema = createInsertSchema(pickupFees).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSponsorSchema = createInsertSchema(sponsors).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertGrantSchema = createInsertSchema(grants).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSponsorshipContributionSchema = createInsertSchema(sponsorshipContributions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertTreasuryTransactionSchema = createInsertSchema(treasuryTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertNgoRewardSchema = createInsertSchema(ngoRewards).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertCsrReportSchema = createInsertSchema(csrReports).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -242,4 +419,41 @@ export type FoodDonationWithDetails = FoodDonation & {
 
 export type EventWithCreator = Event & {
   createdBy: User;
+};
+
+// New types for treasury management
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+
+export type PickupFee = typeof pickupFees.$inferSelect;
+export type InsertPickupFee = z.infer<typeof insertPickupFeeSchema>;
+
+export type Sponsor = typeof sponsors.$inferSelect;
+export type InsertSponsor = z.infer<typeof insertSponsorSchema>;
+
+export type Grant = typeof grants.$inferSelect;
+export type InsertGrant = z.infer<typeof insertGrantSchema>;
+
+export type SponsorshipContribution = typeof sponsorshipContributions.$inferSelect;
+export type InsertSponsorshipContribution = z.infer<typeof insertSponsorshipContributionSchema>;
+
+export type TreasuryTransaction = typeof treasuryTransactions.$inferSelect;
+export type InsertTreasuryTransaction = z.infer<typeof insertTreasuryTransactionSchema>;
+
+export type NgoReward = typeof ngoRewards.$inferSelect;
+export type InsertNgoReward = z.infer<typeof insertNgoRewardSchema>;
+
+export type CsrReport = typeof csrReports.$inferSelect;
+export type InsertCsrReport = z.infer<typeof insertCsrReportSchema>;
+
+// Extended types
+export type SponsorWithContributions = Sponsor & {
+  contributions: SponsorshipContribution[];
+  totalAmount: string;
+};
+
+export type SubscriptionWithMetrics = Subscription & {
+  daysRemaining: number;
+  isExpired: boolean;
+  planName: string;
 };

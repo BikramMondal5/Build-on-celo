@@ -22,6 +22,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { CheckCircle, XCircle, User } from "lucide-react";
 import type { FoodItem, FoodItemWithCreator, FoodDonationWithDetails } from "@shared/schema";
+import { TestRewardsButton } from "@/components/rewards/test-rewards-button";
 interface FoodItemWithId extends FoodItemWithCreator {
   _id?: string;
 }
@@ -57,7 +58,7 @@ interface PendingClaim {
     imageUrl?: string;
   };
 }
-import { Plus, Utensils, TrendingUp, DollarSign, Edit, Trash2, MoreHorizontal, ShieldCheck, Heart, Users, Phone, Clock, AlertTriangle, Leaf, Droplets, Recycle, CheckSquare, Package, Calendar } from "lucide-react";
+import { Plus, Utensils, TrendingUp, DollarSign, Edit, Trash2, MoreHorizontal, ShieldCheck, Heart, Users, Phone, Clock, AlertTriangle, Leaf, Droplets, Recycle, CheckSquare, Package, Calendar, Coins } from "lucide-react";
 import { EventCalendar } from "@/components/calendar/event-calendar";
 import { formatTimeRemaining } from "@/lib/qr-utils";
 import { z } from "zod";
@@ -666,7 +667,7 @@ export default function AdminDashboard() {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="manage" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4 bg-gray-800/50">
+          <TabsList className="grid w-full grid-cols-5 bg-gray-800/50">
             <TabsTrigger value="manage" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
               Manage Items
             </TabsTrigger>
@@ -682,6 +683,10 @@ export default function AdminDashboard() {
             <TabsTrigger value="calendar" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
               <Calendar className="h-4 w-4 mr-2" />
               Calendar
+            </TabsTrigger>
+            <TabsTrigger value="rewards" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
+              <Coins className="h-4 w-4 mr-2" />
+              Test Rewards
             </TabsTrigger>
           </TabsList>
 
@@ -1379,6 +1384,74 @@ export default function AdminDashboard() {
 
           <TabsContent value="calendar" className="space-y-6">
             <EventCalendar />
+          </TabsContent>
+
+          <TabsContent value="rewards" className="space-y-6">
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-2">
+                  Test Smart Contracts
+                </h2>
+                <p className="text-gray-400">
+                  Verify that your RePlate reward contracts are working correctly on Celo Alfajores testnet. 
+                  This will distribute cUSD rewards to students and mint NFT certificates for admins.
+                </p>
+              </div>
+              
+              <TestRewardsButton 
+                onSuccess={() => {
+                  toast({
+                    title: "Rewards Distributed!",
+                    description: "Students have received cUSD and admins received NFT certificates.",
+                  });
+                }}
+                onError={(error) => {
+                  toast({
+                    title: "Distribution Failed",
+                    description: error.message,
+                    variant: "destructive",
+                  });
+                }}
+              />
+
+              <Card className="bg-gray-800/50 border-gray-700">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                    Important Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-gray-300">
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-white">Before Testing:</h4>
+                    <ul className="list-disc list-inside space-y-1 pl-2">
+                      <li>Ensure you have testnet CELO in your wallet for gas fees</li>
+                      <li>Make sure contracts are deployed to Alfajores testnet</li>
+                      <li>Update contract addresses in rewardsService.ts</li>
+                      <li>Fund the StudentRewards contract with testnet cUSD</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-white">What This Does:</h4>
+                    <ul className="list-disc list-inside space-y-1 pl-2">
+                      <li><strong>Students:</strong> Receive ~0.5-1.5 cUSD per meal claim</li>
+                      <li><strong>Admins:</strong> Receive NFT certificates showing their impact</li>
+                      <li><strong>On-Chain:</strong> All transactions recorded on Celo blockchain</li>
+                      <li><strong>Verifiable:</strong> View on CeloScan explorer</li>
+                    </ul>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-white">Get Testnet Tokens:</h4>
+                    <ul className="list-disc list-inside space-y-1 pl-2">
+                      <li>CELO: <a href="https://faucet.celo.org/alfajores" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Celo Faucet</a></li>
+                      <li>cUSD: Use <a href="https://app.ubeswap.org" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Ubeswap</a> to swap CELO for cUSD</li>
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

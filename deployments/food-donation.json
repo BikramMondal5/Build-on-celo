@@ -1,0 +1,8 @@
+{
+  "network": "celoAlfajores",
+  "adminCertificate": "0xca5c934C0E9dedDdF2F6878BBCae3BFF91615E56",
+  "studentRewards": "0x1dB6BA08597b100e9Ba791BaB18aC9BDdB97eCe2",
+  "deployer": "0x086C05dCa183D2Ee73D1485CF0ECC9dB2A867E15",
+  "deployedAt": "2025-10-26T03:28:02.972Z",
+  "rewardAmount": "0.1 CELO per claim"
+}
