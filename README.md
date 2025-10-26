@@ -62,28 +62,11 @@ RePlate Campus is a comprehensive web3-enabled platform designed to reduce food 
 - Wallet Integration: WalletConnect v2
 - Smart Contracts: Solidity (StudentRewards, AdminNFT)
 
-## ⚙️ Installation
 
-1. Clone the repository:
-```bash
-git clone https://github.com/BikramMondal5/Build-on-celo.git
-```
+## contract addresses:
 
-2. Navigate to the project directory:
-```bash
-cd Build-on-celo
-```
+"network": "celoAlfajores",
+"adminCertificate": "0xca5c934C0E9dedDdF2F6878BBCae3BFF91615E56",
+"studentRewards": "0x1dB6BA08597b100e9Ba791BaB18aC9BDdB97eCe2",
+"deployer": "0x086C05dCa183D2Ee73D1485CF0ECC9dB2A867E15",
 
-3. **Install Dependencies:**
-
-
-# contract addresses:
-   "network": "celoAlfajores",
-  "adminCertificate": "0xca5c934C0E9dedDdF2F6878BBCae3BFF91615E56",
-  "studentRewards": "0x1dB6BA08597b100e9Ba791BaB18aC9BDdB97eCe2",
-  "deployer": "0x086C05dCa183D2Ee73D1485CF0ECC9dB2A867E15",
-
-
-## 📜 License
-
-This project is licensed under the `MIT License`.
