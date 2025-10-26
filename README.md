@@ -1,94 +1,89 @@
-# Overview
+# RePlate Campus - Food Waste Reduction Platform
 
-RePlate Campus is a comprehensive web application designed to reduce food waste on university campuses by connecting students with discounted surplus food items from campus canteens. The platform features a dual-user system where staff can list available food items with discounted pricing and students can browse, claim, and pick up meals using claim codes for verification.
+RePlate Campus is a comprehensive web3-enabled platform designed to reduce food waste on university campuses by connecting students with discounted surplus food items from campus canteens. The platform features blockchain-based authentication, real-time food listings, secure claim code system, and smart contract rewards on the Celo blockchain.
 
-The application implements a modern full-stack architecture with real-time food listings, secure authentication, a comprehensive claim code system, and a food donation management system for NGO partnerships that ensures expired food items are redirected to help those in need.
+## Key Highlights
+- 🔗 Web3 Authentication: Wallet-based login using RainbowKit & WalletConnect v2
+- 🌍 Celo Integration: Built on Celo Alfajores testnet for sustainable blockchain operations
+- 💰 Smart Contract Rewards: Automated cUSD rewards for students and NFT certificates for admins
+- 📱 Real-time Updates: Live food availability tracking and instant notifications
+- 🔒 Secure Claim System: QR code-based meal verification with 2-hour expiration
+- ♻️ Donation Management: Automated expired food transfer to NGO partnerships
 
-## Recent Changes
+## 🌟 Features
 
-**August 19, 2025 - Food Donation System Implementation:**
-- Added complete donation management system for expired food items
-- Created food donations database schema with NGO tracking
-- Implemented staff dashboard donation tab with transfer and management capabilities
-- Added backend APIs for donation operations (transfer, reserve, collect)
-- Integrated automated expired food item transfer to donation pool
-- Built NGO reservation system with contact information management
-- Updated currency display to Indian Rupees (₹) throughout application
+**For Students:**
+- Browse available discounted meals from campus canteens
+- Claim meals with unique claim codes
+- Receive cUSD rewards upon verified meal collection
+- Track personal savings and environmental impact
+- Real-time notifications for claims and approvals
 
-# User Preferences
+**For Admins (Canteen Staff):**
+- Add and manage food items with pricing and quantities
+- Approve/reject student meal claims
+- Verify claim codes via QR scanning or manual entry
+- Monitor expiry status of unclaimed items
+- Receive NFT certificates for waste reduction impact
+- Transfer expired items to donation pool
+- Manage NGO reservations and collections
 
-Preferred communication style: Simple, everyday language.
+**Platform Features:**
+- Dual authentication system (Student/Admin roles)
+- Event calendar for campus food events
+- Comprehensive analytics dashboard
+- Campus-wide impact tracking (CO₂ saved, waste reduction)
+- Mobile-responsive design with dark mode
+- Email notifications for claim approvals
 
-# System Architecture
+## 🛠️ Technologies Used
 
-## Frontend Architecture
+**Frontend:**
+- Framework: React 19 with TypeScript
+- Build Tool: Vite
+- Styling: Tailwind CSS with custom design system
+- UI Components: Radix UI primitives via shadcn/ui
+- Web3: RainbowKit, Wagmi, Viem
+- State Management: React Query (TanStack Query)
+- Form Handling: React Hook Form with Zod validation
+- Routing: Wouter
 
-The client-side application is built using React 18 with TypeScript and follows modern React patterns:
+**Backend:**
+- Runtime: Node.js with Express
+- Database: MongoDB with Mongoose ODM
+- Authentication: Web3 wallet signatures (ECDSA)
+- Session Management: Express-session with connect-mongo
+- File Upload: Multer for image handling
+- Email: Nodemailer for notifications
 
-- **Component Architecture**: Utilizes shadcn/ui components built on Radix UI primitives for consistent, accessible UI elements
-- **Styling System**: Implements Tailwind CSS with CSS variables for theming and responsive design
-- **State Management**: Uses React Query (@tanstack/react-query) for server state management and React hooks for local state
-- **Routing**: Implements wouter for lightweight client-side routing with role-based access control
-- **Form Handling**: Integrates react-hook-form with Zod validation for type-safe form management
+**Blockchain:**
+- Network: Celo Alfajores Testnet
+- RPC: Celo Forno public RPC
+- Wallet Integration: WalletConnect v2
+- Smart Contracts: Solidity (StudentRewards, AdminNFT)
 
-## Backend Architecture
+## ⚙️ Installation
 
-The server follows an Express.js-based REST API pattern with TypeScript:
+1. Clone the repository:
+```bash
+git clone https://github.com/BikramMondal5/Build-on-celo.git
+```
 
-- **API Layer**: RESTful endpoints organized in routes with middleware for authentication and error handling
-- **Database Layer**: Uses Drizzle ORM with PostgreSQL for type-safe database operations and schema management
-- **Storage Pattern**: Implements a storage interface pattern for data access, providing abstraction over database operations
-- **Authentication System**: Integrates Replit's OpenID Connect authentication with session management
+2. Navigate to the project directory:
+```bash
+cd Build-on-celo
+```
 
-## Data Storage Solutions
+3. **Install Dependencies:**
 
-- **Primary Database**: PostgreSQL with Neon serverless hosting for scalable data storage
-- **ORM**: Drizzle ORM providing type-safe database queries and automatic TypeScript inference
-- **Session Storage**: PostgreSQL-backed session storage using connect-pg-simple for persistent user sessions
-- **Schema Management**: Centralized schema definitions in TypeScript with automatic validation using drizzle-zod
 
-## Authentication and Authorization
+# contract addresses:
+   "network": "celoAlfajores",
+  "adminCertificate": "0xca5c934C0E9dedDdF2F6878BBCae3BFF91615E56",
+  "studentRewards": "0x1dB6BA08597b100e9Ba791BaB18aC9BDdB97eCe2",
+  "deployer": "0x086C05dCa183D2Ee73D1485CF0ECC9dB2A867E15",
 
-- **Authentication Provider**: Replit Auth using OpenID Connect for secure user authentication
-- **Session Management**: Server-side sessions stored in PostgreSQL with configurable TTL
-- **Role-Based Access**: Dual user roles (student/staff) with different dashboard access and permissions
-- **Middleware Protection**: Route-level authentication middleware protecting API endpoints
 
-## Claim Code System
+## 📜 License
 
-- **Generation**: Custom claim code generation for meal claims with unique identifiers
-- **Verification**: Server-side claim code validation for meal pickup confirmation
-- **Status Tracking**: Comprehensive claim status management (reserved, claimed, expired, cancelled)
-
-## Key Data Models
-
-- **Users**: Profile management with role differentiation and contact information
-- **Food Items**: Complete meal metadata including pricing, availability, and canteen details
-- **Food Claims**: Relationship tracking between users and claimed meals with claim codes
-- **Sessions**: Secure session storage for authentication persistence
-
-# External Dependencies
-
-## Database Services
-- **Neon Database**: Serverless PostgreSQL hosting with connection pooling
-- **Drizzle Kit**: Database migration and schema management toolkit
-
-## Authentication Services
-- **Replit Auth**: OpenID Connect authentication provider
-- **Passport.js**: Authentication middleware with OpenID Connect strategy
-
-## Frontend Libraries
-- **Radix UI**: Headless component primitives for accessibility
-- **Tailwind CSS**: Utility-first CSS framework with custom design system
-- **React Query**: Server state management and caching
-- **React Hook Form**: Form state management with validation
-
-## Development Tools
-- **Vite**: Frontend build tool with development server
-- **TypeScript**: Type safety across the entire application stack
-- **ESBuild**: Fast JavaScript bundler for production builds
-
-## Utility Libraries
-- **Zod**: Runtime type validation and schema definition
-- **Date-fns**: Date manipulation and formatting utilities
-- **Nanoid**: Unique identifier generation for various entities
+This project is licensed under the `MIT License`.
