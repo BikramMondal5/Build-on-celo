@@ -46,6 +46,7 @@ interface PendingClaim {
   status: string;
   createdAt: Date;
   user: {
+    walletAddress: string;
     firstName: string;
     lastName: string;
     email: string;
@@ -1012,14 +1013,29 @@ export default function AdminDashboard() {
           </TabsContent>
           <TabsContent value="pending" className="space-y-6">
             <div className="bg-gray-800/80 backdrop-blur-sm rounded-2xl p-6">
-              <div className="mb-6">
-                <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                  <Clock className="w-5 h-5" />
-                  Pending Claim Approvals
-                </h3>
-                <p className="text-gray-300">
-                  Review and approve or reject student meal claims
-                </p>
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-yellow-500" />
+                    Pending Claim Approvals
+                    {pendingClaims.length > 0 && (
+                      <Badge className="ml-2 bg-yellow-500 text-white">
+                        {pendingClaims.length} pending
+                      </Badge>
+                    )}
+                  </h3>
+                  <p className="text-gray-300">
+                    Review and approve or reject student meal claims. Students will be notified via email and in-app.
+                  </p>
+                </div>
+                
+                {/* Auto-refresh indicator */}
+                {pendingClaims.length > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    Auto-refreshing every 30s
+                  </div>
+                )}
               </div>
 
               {pendingClaimsLoading ? (
@@ -1029,92 +1045,202 @@ export default function AdminDashboard() {
                 </div>
               ) : pendingClaims.length === 0 ? (
                 <div className="text-center py-12">
-                  <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                  <div className="w-20 h-20 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="w-10 h-10 text-green-500" />
+                  </div>
                   <h3 className="text-lg font-semibold text-white mb-2">
                     All Caught Up!
                   </h3>
                   <p className="text-gray-400">
                     No pending claims to review at the moment.
                   </p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    New claims will appear here automatically
+                  </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[200px]">Student</TableHead>
-                        <TableHead className="w-[200px]">Food Item</TableHead>
-                        <TableHead className="w-[120px]">Canteen</TableHead>
-                        <TableHead className="w-[100px]">Quantity</TableHead>
-                        <TableHead className="w-[150px]">Requested</TableHead>
-                        <TableHead className="w-[200px] text-center">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pendingClaims.map((claim) => (
-                        <TableRow key={claim.id}>
-                          <TableCell>
-                            <div className="flex items-center space-x-3">
-                              <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <div className="space-y-4">
+                  {/* Desktop view - Table */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[250px]">Student</TableHead>
+                          <TableHead className="w-[200px]">Food Item</TableHead>
+                          <TableHead className="w-[150px]">Canteen</TableHead>
+                          <TableHead className="w-[80px] text-center">Qty</TableHead>
+                          <TableHead className="w-[150px]">Requested</TableHead>
+                          <TableHead className="w-[250px] text-center">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingClaims.map((claim) => (
+                          <TableRow key={claim.id} className="hover:bg-gray-700/50">
+                            <TableCell>
+                              <div className="flex items-center space-x-3">
+                                <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden border-2 border-yellow-500">
+                                  {claim.user.profileImageUrl ? (
+                                    <img
+                                      src={claim.user.profileImageUrl}
+                                      alt={`${claim.user.firstName} ${claim.user.lastName}`}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).style.display = 'none';
+                                        (e.target as HTMLImageElement).parentElement!.innerHTML = 
+                                          '<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>';
+                                      }}
+                                    />
+                                  ) : (
+                                    <User className="w-5 h-5 text-gray-400" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium text-white truncate">
+                                    {claim.user.firstName || claim.user.walletAddress.slice(0, 8) + '...'} {claim.user.lastName || ''}
+                                  </p>
+                                  {claim.user.email ? (
+                                    <p className="text-xs text-gray-400 truncate">
+                                      {claim.user.email}
+                                    </p>
+                                  ) : (
+                                    <p className="text-xs text-gray-500 truncate font-mono">
+                                      {claim.user.walletAddress?.slice(0, 12)}...
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center space-x-2">
+                                <div className="w-10 h-10 bg-gray-700 rounded flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                  {claim.foodItem.imageUrl ? (
+                                    <img
+                                      src={claim.foodItem.imageUrl}
+                                      alt={claim.foodItem.name}
+                                      className="w-full h-full object-cover rounded"
+                                    />
+                                  ) : (
+                                    <Utensils className="w-5 h-5 text-gray-400" />
+                                  )}
+                                </div>
+                                <p className="font-medium text-white truncate">
+                                  {claim.foodItem.name}
+                                </p>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-gray-300 text-sm">
+                              {claim.foodItem.canteenName}
+                            </TableCell>
+                            <TableCell className="text-white font-medium text-center">
+                              {claim.quantityClaimed}
+                            </TableCell>
+                            <TableCell className="text-gray-400 text-sm">
+                              <div className="flex flex-col">
+                                <span>{new Date(claim.createdAt).toLocaleDateString()}</span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(claim.createdAt).toLocaleTimeString()}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-center gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => approveClaimMutation.mutate(claim.id)}
+                                  disabled={approveClaimMutation.isPending || rejectClaimMutation.isPending}
+                                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2"
+                                >
+                                  <CheckCircle className="w-4 h-4 mr-1" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => {
+                                    const reason = prompt("Reason for rejection (optional):");
+                                    rejectClaimMutation.mutate({ 
+                                      claimId: claim.id, 
+                                      reason: reason || undefined 
+                                    });
+                                  }}
+                                  disabled={approveClaimMutation.isPending || rejectClaimMutation.isPending}
+                                  className="px-4 py-2"
+                                >
+                                  <XCircle className="w-4 h-4 mr-1" />
+                                  Reject
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Mobile view - Cards */}
+                  <div className="md:hidden space-y-4">
+                    {pendingClaims.map((claim) => (
+                      <Card key={claim.id} className="bg-gray-700/50 border-yellow-500/30">
+                        <CardContent className="p-4">
+                          <div className="space-y-4">
+                            {/* Student Info */}
+                            <div className="flex items-center space-x-3 pb-3 border-b border-gray-600">
+                              <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center overflow-hidden border-2 border-yellow-500">
                                 {claim.user.profileImageUrl ? (
                                   <img
                                     src={claim.user.profileImageUrl}
                                     alt={`${claim.user.firstName} ${claim.user.lastName}`}
                                     className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      // Fallback to User icon if image fails to load
-                                      (e.target as HTMLImageElement).style.display = 'none';
-                                      (e.target as HTMLImageElement).parentElement!.innerHTML = '<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>';
-                                    }}
                                   />
                                 ) : (
-                                  <User className="w-5 h-5 text-gray-400" />
+                                  <User className="w-6 h-6 text-gray-400" />
                                 )}
                               </div>
-                              <div className="min-w-0">
-                                <p className="font-medium text-white truncate">
-                                  {claim.user.firstName} {claim.user.lastName}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-white">
+                                  {claim.user.firstName || claim.user.walletAddress.slice(0, 8) + '...'} {claim.user.lastName || ''}
                                 </p>
-                                <p className="text-xs text-gray-400 truncate">
-                                  {claim.user.email}
-                                </p>
+                                {claim.user.email ? (
+                                  <p className="text-xs text-gray-400 truncate">
+                                    {claim.user.email}
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-gray-500 font-mono">
+                                    {claim.user.walletAddress?.slice(0, 16)}...
+                                  </p>
+                                )}
                               </div>
                             </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              <div className="w-10 h-10 bg-gray-700 rounded flex-shrink-0 flex items-center justify-center">
+
+                            {/* Food Info */}
+                            <div className="flex items-center space-x-3">
+                              <div className="w-12 h-12 bg-gray-700 rounded flex-shrink-0 overflow-hidden">
                                 {claim.foodItem.imageUrl ? (
                                   <img
                                     src={claim.foodItem.imageUrl}
                                     alt={claim.foodItem.name}
-                                    className="w-full h-full object-cover rounded"
+                                    className="w-full h-full object-cover"
                                   />
                                 ) : (
-                                  <Utensils className="w-5 h-5 text-gray-400" />
+                                  <Utensils className="w-6 h-6 text-gray-400 m-auto" />
                                 )}
                               </div>
-                              <p className="font-medium text-white truncate">
-                                {claim.foodItem.name}
-                              </p>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-white">{claim.foodItem.name}</p>
+                                <p className="text-sm text-gray-400">{claim.foodItem.canteenName}</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Qty: {claim.quantityClaimed} • {new Date(claim.createdAt).toLocaleDateString()}
+                                </p>
+                              </div>
                             </div>
-                          </TableCell>
-                          <TableCell className="text-gray-300">
-                            {claim.foodItem.canteenName}
-                          </TableCell>
-                          <TableCell className="text-white font-medium">
-                            {claim.quantityClaimed}
-                          </TableCell>
-                          <TableCell className="text-gray-400 text-sm">
-                            {new Date(claim.createdAt).toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center justify-center gap-2">
+
+                            {/* Actions */}
+                            <div className="flex gap-2 pt-3 border-t border-gray-600">
                               <Button
                                 size="sm"
                                 onClick={() => approveClaimMutation.mutate(claim.id)}
-                                disabled={approveClaimMutation.isPending}
-                                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1"
+                                disabled={approveClaimMutation.isPending || rejectClaimMutation.isPending}
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                               >
                                 <CheckCircle className="w-4 h-4 mr-1" />
                                 Approve
@@ -1122,19 +1248,25 @@ export default function AdminDashboard() {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => rejectClaimMutation.mutate({ claimId: claim.id })}
-                                disabled={rejectClaimMutation.isPending}
-                                className="px-3 py-1"
+                                onClick={() => {
+                                  const reason = prompt("Reason for rejection (optional):");
+                                  rejectClaimMutation.mutate({ 
+                                    claimId: claim.id, 
+                                    reason: reason || undefined 
+                                  });
+                                }}
+                                disabled={approveClaimMutation.isPending || rejectClaimMutation.isPending}
+                                className="flex-1"
                               >
                                 <XCircle className="w-4 h-4 mr-1" />
                                 Reject
                               </Button>
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

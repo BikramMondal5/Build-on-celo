@@ -34,15 +34,17 @@ export function useAuth() {
       }
     },
     enabled: !!address && isConnected,
-    retry: false,
-    staleTime: 5000, // Cache for 5 seconds
-    refetchOnWindowFocus: false, // Don't refetch on window focus to prevent loops
+    retry: 2, // Changed: Retry 2 times
+    retryDelay: 500, // Wait 500ms between retries
+    staleTime: 30000, // Changed: Cache for 30 seconds
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+    refetchOnMount: true, // Added: Always refetch on mount
   });
 
   return {
     user,
-    isLoading,
+    isLoading: isLoading || (!user && !!address && isConnected), // Changed: Still loading if wallet connected but no user yet
     isAuthenticated: !!user && !!address && isConnected,
     address,
     refetch,

@@ -212,15 +212,16 @@ export const MealCard: React.FC<MealCardProps> = ({
   );
 
   // Check if user has a pending claim for this meal
-  const hasPendingClaim = useMemo(() => {
-    // Use prop if provided, otherwise calculate from userClaims
-    if (isPendingApproval !== undefined) {
-      return isPendingApproval;
-    }
-    return userClaims.some(claim =>
-      claim.foodItemId === meal.id && claim.status === 'pending'
-    );
-  }, [isPendingApproval, userClaims, meal.id]);
+   const hasPendingClaim = useMemo(() => {
+      return userClaims.some(claim => {
+        // Compare both _id and id formats to handle populated data
+        const claimFoodId = typeof claim.foodItemId === 'object' 
+          ? (claim.foodItemId as any).id || (claim.foodItemId as any)._id 
+          : claim.foodItemId;
+        const mealIdToCompare = (meal as any).id || (meal as any)._id || meal.id;
+        return (claimFoodId === mealIdToCompare || claimFoodId === meal.id) && claim.status === 'pending';
+      });
+    }, [userClaims, meal.id]);
 
   // Calculate time remaining
   const { hoursRemaining, minutesRemaining, timeRemaining } = useMemo(() => {
@@ -304,10 +305,14 @@ export const MealCard: React.FC<MealCardProps> = ({
           <Button
             onClick={handleClaim}
             disabled={isLoading || hasClaimed || meal.quantityAvailable <= 0 || timeRemaining <= 0 || hasPendingClaim}
-            className={`w-full text-white disabled:cursor-not-allowed ${
+            className={`w-full ${
               hasPendingClaim 
-                ? 'bg-gray-400 hover:bg-gray-400' 
-                : 'bg-green-600 hover:bg-green-700 disabled:bg-gray-300'
+                ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100 cursor-not-allowed' 
+                : hasClaimed
+                ? 'bg-green-100 text-green-800 hover:bg-green-100 cursor-not-allowed'
+                : meal.quantityAvailable <= 0 || timeRemaining <= 0
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700 text-white'
             }`}
           >
             {isLoading ? (
@@ -316,7 +321,10 @@ export const MealCard: React.FC<MealCardProps> = ({
                 Claiming...
               </div>
             ) : hasPendingClaim ? (
-              'Pending Approval'
+              <>
+                <Clock className="w-4 h-4 mr-2" />
+                Pending Approval
+              </>
             ) : hasClaimed ? (
               'Already Claimed'
             ) : meal.quantityAvailable <= 0 ? (

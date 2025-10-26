@@ -60,22 +60,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper function to get user ID from session
   const getUserIdFromSession = (req: any): string | null => {
-    if (req.session.walletAddress) {
+    console.log('🔎 Getting user ID from session...');
+    console.log('Session walletAddress:', req.session?.walletAddress);
+    console.log('Session user:', req.session?.user);
+    
+    if (req.session?.walletAddress) {
+      console.log('✅ Found walletAddress:', req.session.walletAddress);
       return req.session.walletAddress;
     }
+    
+    console.log('❌ No walletAddress found in session');
     return null;
   };
 
   // Auth routes
-  
+  app.get('/api/debug/session', (req: any, res) => {
+    console.log('🔍 Debug Session Request');
+    console.log('Session:', req.session);
+    res.json({
+      hasSession: !!req.session,
+      sessionId: req.session?.id,
+      walletAddress: req.session?.walletAddress,
+      user: req.session?.user,
+      cookies: req.headers.cookie,
+      allSessionKeys: Object.keys(req.session || {}),
+    });
+  });
+  app.get('/api/auth/check-user', async (req: any, res) => {
+    try {
+      const { address } = req.query;
+      
+      if (!address) {
+        return res.status(400).json({ message: "Address is required" });
+      }
+
+      const normalizedAddress = address.toLowerCase();
+      const existingUser = await storage.getUserByWalletAddress(normalizedAddress);
+      
+      console.log('🔍 User check for', normalizedAddress, ':', existingUser ? 'EXISTS' : 'NEW');
+      
+      res.json({ 
+        exists: !!existingUser,
+        hasEmail: !!existingUser?.email
+      });
+    } catch (error) {
+      console.error("Error checking user:", error);
+      res.status(500).json({ message: "Failed to check user" });
+    }
+  });
   // Wallet authentication
   app.post('/api/auth/wallet', async (req: any, res) => {
     try {
+      console.log('🔐 Wallet auth starting...');
       const { address, signature, message, role } = req.body;
 
       if (!address || !signature || !message) {
         return res.status(400).json({ message: "Missing required fields" });
       }
+
+      const normalizedAddress = address.toLowerCase();
 
       // Verify the signature
       const isValid = await verifyMessage({
@@ -88,13 +131,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Invalid signature" });
       }
 
-      // Create or update user
-      const user = await storage.createOrUpdateUserByWallet(address, { role: role || 'student' });
+      console.log('✅ Signature verified for:', normalizedAddress);
 
-      // Create session
-      req.session.walletAddress = address.toLowerCase();
+      // Create or update user with wallet address only
+      const userData: any = { 
+        role: role || 'student'
+      };
+
+      const user = await storage.createOrUpdateUserByWallet(normalizedAddress, userData);
+      console.log('👤 User created/updated:', user.walletAddress);
+
+      // Set session
+      req.session.walletAddress = normalizedAddress;
       req.session.user = {
-        walletAddress: address.toLowerCase(),
+        walletAddress: normalizedAddress,
         role: user.role || 'student',
       };
 
@@ -107,11 +157,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, user });
     } catch (error) {
-      console.error("Wallet authentication error:", error);
+      console.error("❌ Wallet authentication error:", error);
       res.status(500).json({ message: "Authentication failed" });
     }
   });
-
   // Get current user
   app.get('/api/auth/user', async (req: any, res) => {
     try {
@@ -284,57 +333,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Food items routes
   app.get('/api/food-items', async (req, res) => {
     try {
+      console.log('🍽️ === GET /api/food-items endpoint called ===');
       const items = await storage.getAllActiveFoodItems();
+      console.log('✅ Returning', items.length, 'items');
       res.json(items);
-    } catch (error) {
-      console.error("Error fetching food items:", error);
-      res.status(500).json({ message: "Failed to fetch food items" });
+    } catch (error: any) {  // FIXED: Add type annotation
+      console.error("❌ Error fetching food items:", error);
+      console.error('Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name
+      });
+      res.status(500).json({ 
+        message: "Failed to fetch food items",
+        error: error?.message || 'Unknown error'
+      });
     }
   });
 
   app.get('/api/food-items/my', async (req: any, res) => {
     try {
+      console.log('📋 === GET /api/food-items/my endpoint called ===');
+      console.log('Session:', JSON.stringify(req.session));
+      
       let userId = null;
       
-      // Check demo session first
-      if (req.session.user) {
+      if (req.session?.user) {
+        console.log('✅ Session user exists');
         userId = getUserIdFromSession(req);
+      } else {
+        console.log('❌ No session user found');
       }
       
       if (!userId) {
+        console.log('❌ No userId, returning 401');
         return res.status(401).json({ message: "Unauthorized" });
       }
       
+      console.log('🔍 Fetching items for userId:', userId);
       const items = await storage.getFoodItemsByCreator(userId);
+      console.log('✅ Returning', items.length, 'items');
+      
       res.json(items);
-    } catch (error) {
-      console.error("Error fetching user's food items:", error);
-      res.status(500).json({ message: "Failed to fetch food items" });
+    } catch (error: any) {  // FIXED: Add type annotation
+      console.error("❌ Error fetching user's food items:", error);
+      console.error('Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name
+      });
+      res.status(500).json({ 
+        message: "Failed to fetch food items",
+        error: error?.message || 'Unknown error'
+      });
     }
   });
 
   app.post('/api/food-items', upload.single('image'), async (req: any, res) => {
     try {
+      console.log('🍽️ === Creating food item ===');
+      console.log('Session at start:', JSON.stringify(req.session));
+      
       let userId = null;
       
-      if (req.session.user) {
+      if (req.session?.user) {
         userId = getUserIdFromSession(req);
+        console.log('✅ Got userId from session:', userId);
+      } else {
+        console.log('❌ No session user found');
       }
       
       if (!userId) {
+        console.log('❌ No userId, returning 401');
         return res.status(401).json({ message: "Unauthorized" });
       }
       
       const user = await storage.getUser(userId);
+      console.log('👤 User from DB:', user?.walletAddress, 'Role:', user?.role);
       
       if (!user || user.role !== 'admin') {
+        console.log('❌ User is not admin');
         return res.status(403).json({ message: "Only admin can create food items" });
       }
 
       // Get image URL from uploaded file
       const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
-      // Parse form data (multer sends everything as strings)
+      // Parse form data
       const parsedBody = {
         name: req.body.name,
         description: req.body.description,
@@ -345,20 +430,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: req.body.isActive === 'true' || req.body.isActive === true,
       };
 
+      console.log('📝 Parsed body:', parsedBody);
+
       const validatedData = insertFoodItemSchema.parse({
         ...parsedBody,
         imageUrl,
         createdBy: userId,
       });
       
+      console.log('✅ Data validated, creating item...');
       const item = await storage.createFoodItem(validatedData as any);
+      console.log('✅ Item created:', item.id);
       
-      // Send notifications to users who have claimed from this canteen
+      // Send notifications
       try {
         const usersToNotify = await storage.getUsersWhoClaimedFromCanteen(validatedData.canteenName);
         
         for (const userIdToNotify of usersToNotify) {
-          // Don't notify the admin who created the item
           if (userIdToNotify !== userId) {
             await storage.createNotification({
               userId: userIdToNotify,
@@ -371,19 +459,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       } catch (notificationError) {
-        console.error("Error sending notifications:", notificationError);
-        // Don't fail the food item creation if notifications fail
+        console.error("⚠️ Error sending notifications:", notificationError);
       }
       
+      console.log('✅ Returning created item');
       res.status(201).json(item);
     } catch (error) {
       if (req.file) {
         fs.unlinkSync(req.file.path);
       }
       if (error instanceof z.ZodError) {
+        console.error('❌ Validation error:', error.errors);
         return res.status(400).json({ message: "Invalid data", errors: error.errors });
       }
-      console.error("Error creating food item:", error);
+      console.error("❌ Error creating food item:", error);
       res.status(500).json({ message: "Failed to create food item" });
     }
   });
@@ -511,6 +600,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "You have already claimed this food item" });
       }
 
+      // Get user details
+      let user = await storage.getUser(userId);
+      
+      // UPDATE USER EMAIL if provided in metadata
+      if (metadata?.email && user) {
+        try {
+          user = await storage.upsertUser({
+            ...user,
+            email: metadata.email,
+            firstName: metadata.name?.split(' ')[0] || user.firstName,
+            lastName: metadata.name?.split(' ').slice(1).join(' ') || user.lastName,
+            phoneNumber: metadata.phoneNumber || user.phoneNumber,
+          });
+          console.log('✅ Updated user with email:', metadata.email);
+        } catch (updateError) {
+          console.error('⚠️ Failed to update user email:', updateError);
+        }
+      }
+      
+      const expiresAt = new Date(foodItem.availableUntil);
+
       // Create claim with pending status (no claim code yet)
       const claimData = {
         userId,
@@ -518,26 +628,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         quantityClaimed,
         claimCode: '', // Will be generated upon approval
         status: "pending" as const,
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes placeholder
+        expiresAt,
         metadata,
       };
 
       const claim = await storage.createFoodClaim(claimData);
       
-      // Send email notification to student
-      const user = await storage.getUser(userId);
-      if (user?.email) {
+      // Send email notification to student using the email from metadata
+      const userEmail = metadata?.email || user?.email;
+      const userName = metadata?.name || user?.firstName || user?.walletAddress;
+      
+      if (userEmail) {
         try {
           await sendClaimRequestEmail(
-            user.email,
-            user.firstName || 'Student',
+            userEmail,
+            userName,
             foodItem.name,
             foodItem.canteenName
           );
+          console.log('✉️ Claim request email sent to:', userEmail);
         } catch (emailError) {
-          console.error('Failed to send email:', emailError);
+          console.error('⚠️ Failed to send email:', emailError);
           // Continue even if email fails
         }
+      } else {
+        console.log('ℹ️ No email provided for user:', userId);
+      }
+      
+      // Create notification for the user
+      try {
+        await storage.createNotification({
+          userId,
+          title: "Claim Request Submitted",
+          message: `Your request to claim "${foodItem.name}" from ${foodItem.canteenName} has been submitted and is pending admin approval.`,
+          type: "info",
+          relatedItemId: claim.id,
+          relatedItemType: "claim"
+        });
+      } catch (notifError) {
+        console.error('⚠️ Failed to create notification:', notifError);
       }
       
       res.status(201).json(claim);
@@ -552,8 +681,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       let userId = null;
       
+      // Get user ID from session (MetaMask wallet)
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -579,7 +709,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let userId = null;
       
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -602,36 +732,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Only pending claims can be approved" });
       }
 
+      // Get food item to use its availableUntil time
+      const foodItem = await storage.getFoodItemById(claim.foodItemId);
+      if (!foodItem) {
+        return res.status(404).json({ message: "Food item not found" });
+      }
+
       // Generate unique claim code
       const claimCode = generateClaimCode();
       
-      // Set new expiration (30 minutes from now)
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 30);
+      // Set expiration to the food item's availableUntil time
+      const expiresAt = new Date(foodItem.availableUntil);
 
       // Update claim status to reserved with claim code
       const updatedClaim = await storage.updateFoodClaimWithCode(id, claimCode, "reserved", expiresAt);
+      if (!updatedClaim) {
+        return res.status(500).json({ message: "Failed to update claim" });
+      }
       
-      // Get food item details
-      const foodItem = await storage.getFoodItemById(claim.foodItemId);
+      // REDUCE QUANTITY
+      const newQuantity = Math.max(0, foodItem.quantityAvailable - claim.quantityClaimed);
+      await storage.updateFoodItem(claim.foodItemId, {
+        quantityAvailable: newQuantity
+      });
+      console.log(`✅ Reduced quantity for ${foodItem.name}: ${foodItem.quantityAvailable} -> ${newQuantity}`);
       
       // Get user details
       const claimUser = await storage.getUser(claim.userId);
-      
-      // Send approval email with claim code
-      if (claimUser?.email && foodItem) {
+
+      // Use the email that was stored during claim creation
+      const userEmail = claimUser?.email;
+      const userName = claimUser?.firstName || claimUser?.walletAddress || 'Student';
+
+      if (userEmail && foodItem) {
         try {
           await sendClaimApprovedEmail(
-            claimUser.email,
-            claimUser.firstName || 'Student',
+            userEmail,
+            userName,
             foodItem.name,
             foodItem.canteenName,
             claimCode,
             expiresAt
           );
+          console.log('✉️ Email sent to:', userEmail);
         } catch (emailError) {
-          console.error('Failed to send approval email:', emailError);
+          console.error('⚠️ Failed to send email:', emailError);
         }
+      } else {
+        console.log('ℹ️ No email for user:', claim.userId, '- skipping approval email');
+      }
+      
+      // Create notification for the user
+      try {
+        await storage.createNotification({
+          userId: claim.userId,
+          title: "Claim Approved! 🎉",
+          message: `Your claim for "${foodItem.name}" has been approved! Your claim code is: ${claimCode}. Valid until ${expiresAt.toLocaleString()}.`,
+          type: "success",
+          relatedItemId: updatedClaim.id,
+          relatedItemType: "claim"
+        });
+      } catch (notifError) {
+        console.error('⚠️ Failed to create notification:', notifError);
       }
       
       res.json(updatedClaim);
@@ -641,13 +803,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add new endpoint to reject a claim (admin only)
+  // 3. UPDATE: Reject claim endpoint (around line 690)
   app.put('/api/food-claims/:id/reject', async (req: any, res) => {
     try {
       let userId = null;
       
       if (req.session.user) {
-        userId = req.session.user.claims.sub;
+        userId = getUserIdFromSession(req);
       }
       
       if (!userId) {
@@ -674,25 +836,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Update claim status to rejected
       const updatedClaim = await storage.updateFoodClaimStatus(id, "rejected");
-      
+      if (!updatedClaim) {
+        return res.status(500).json({ message: "Failed to update claim" });
+      }
       // Get food item details
       const foodItem = await storage.getFoodItemById(claim.foodItemId);
       
       // Get user details
       const claimUser = await storage.getUser(claim.userId);
-      
-      // Send rejection email
-      if (claimUser?.email && foodItem) {
+
+      // Use the email that was stored during claim creation
+      const userEmail = claimUser?.email;
+      const userName = claimUser?.firstName || claimUser?.walletAddress || 'Student';
+
+      if (userEmail && foodItem) {
         try {
-          await sendClaimRejectedEmail(
-            claimUser.email,
-            claimUser.firstName || 'Student',
+          await sendClaimRejectedEmail(  
+            userEmail,
+            userName,
             foodItem.name,
             foodItem.canteenName,
-            reason
           );
+          console.log('✉️ Email sent to:', userEmail);
         } catch (emailError) {
-          console.error('Failed to send rejection email:', emailError);
+          console.error('⚠️ Failed to send email:', emailError);
+        }
+      } else {
+        console.log('ℹ️ No email for user:', claim.userId, '- skipping rejection email');
+      }
+      
+      // Create notification for the user
+      if (foodItem) {
+        try {
+          await storage.createNotification({
+            userId: claim.userId,
+            title: "Claim Request Update",
+            message: `Your request for "${foodItem.name}" could not be approved at this time.${reason ? ` Reason: ${reason}` : ''}`,
+            type: "warning",
+            relatedItemId: updatedClaim.id,
+            relatedItemType: "claim"
+          });
+        } catch (notifError) {
+          console.error('⚠️ Failed to create notification:', notifError);
         }
       }
       

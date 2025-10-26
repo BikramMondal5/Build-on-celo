@@ -1,3 +1,5 @@
+// Complete updated server/email.service.ts
+
 import nodemailer from 'nodemailer';
 
 // Create transporter
@@ -13,16 +15,22 @@ const transporter = nodemailer.createTransport({
 export function generateClaimCode(): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 8);
-  return `CLAIM-${timestamp}-${random}`.toUpperCase();
+  return `${timestamp}-${random}`.toUpperCase();
 }
 
 // Send claim request submitted email
 export async function sendClaimRequestEmail(
-  email: string,
+  email: string | undefined,
   userName: string,
   foodItemName: string,
   canteenName: string
 ) {
+  // Skip email if no email address provided
+  if (!email) {
+    console.log('No email provided, skipping claim request email');
+    return;
+  }
+
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: email,
@@ -60,13 +68,19 @@ export async function sendClaimRequestEmail(
 
 // Send claim approved email with claim code
 export async function sendClaimApprovedEmail(
-  email: string,
+  email: string | undefined,
   userName: string,
   foodItemName: string,
   canteenName: string,
   claimCode: string,
   expiresAt: Date
 ) {
+  // Skip email if no email address provided
+  if (!email) {
+    console.log('No email provided, skipping claim approved email');
+    return;
+  }
+
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: email,
@@ -114,12 +128,18 @@ export async function sendClaimApprovedEmail(
 
 // Send claim rejected email
 export async function sendClaimRejectedEmail(
-  email: string,
+  email: string | undefined,
   userName: string,
   foodItemName: string,
   canteenName: string,
   reason?: string
 ) {
+  // Skip email if no email address provided
+  if (!email) {
+    console.log('No email provided, skipping claim rejected email');
+    return;
+  }
+
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: email,
